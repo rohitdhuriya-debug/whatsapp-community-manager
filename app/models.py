@@ -149,6 +149,9 @@ class Campaign(SQLModel, table=True):
     # Post page one of a PDF as an image before the document, so the feed shows
     # a preview rather than a bare filename.
     send_cover_image: bool = True
+    # "dashboard" = approve in the browser. "whatsapp" = the draft is sent to
+    # your own number first, and only goes out when you reply /approve.
+    approval_mode: str = Field(default="dashboard")
     created_at: datetime = Field(default_factory=utcnow, index=True)
     last_run_at: datetime | None = None
 
@@ -264,6 +267,82 @@ class SendLog(SQLModel, table=True):
     status: str = ""  # "sent" | "failed"
     response_json: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class ApprovalStatus(str, Enum):
+    pending = "pending"
+    approved = "approved"
+    rejected = "rejected"
+    expired = "expired"
+
+
+class ApprovalRequest(SQLModel, table=True):
+    """An approval waiting on a WhatsApp reply.
+
+    The draft is sent to your own number; replying /approve there releases it
+    to the communities. Lets you sign off from the phone without opening the
+    dashboard.
+    """
+
+    __tablename__ = "approval_requests"
+
+    id: int | None = Field(default=None, primary_key=True)
+    campaign_id: int = Field(foreign_key="campaigns.id", index=True)
+
+    # Short human-typable code, so several pending approvals stay unambiguous.
+    code: str = Field(index=True)
+    chat_id: str = ""          # where the request was sent
+    session_name: str = ""     # which WAHA session owns that chat
+
+    status: ApprovalStatus = Field(default=ApprovalStatus.pending, index=True)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    resolved_at: datetime | None = None
+    # WhatsApp timestamps are unix seconds; only replies after this count.
+    sent_ts: int = 0
+    note: str = ""
+
+
+class NewsFeed(SQLModel, table=True):
+    """A standing news query, refreshed on a schedule.
+
+    Built for the "what happened, and what does it mean for India" workflow:
+    each feed is a slice of the world you want watched.
+    """
+
+    __tablename__ = "news_feeds"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = ""
+    query: str = Field(default="", sa_column=Column(Text))
+    # Free-form label shown as a chip: "Geopolitics", "Indian markets", …
+    category: str = ""
+    region: str = "in-en"
+    active: bool = True
+    created_at: datetime = Field(default_factory=utcnow)
+    last_fetched_at: datetime | None = None
+
+
+class NewsItem(SQLModel, table=True):
+    """One headline. Deduped per feed by a normalised title."""
+
+    __tablename__ = "news_items"
+
+    id: int | None = Field(default=None, primary_key=True)
+    feed_id: int = Field(foreign_key="news_feeds.id", index=True)
+    title: str = Field(default="", sa_column=Column(Text))
+    dedupe_key: str = Field(default="", index=True)
+    url: str = Field(default="", sa_column=Column(Text))
+    source: str = ""
+    snippet: str = Field(default="", sa_column=Column(Text))
+    published: str = ""
+    # When the article was published, not when we happened to find it. Sorting
+    # and the freshness cutoff both use this; `fetched_at` only says when we
+    # last looked. None when the source gave no parseable date.
+    published_at: datetime | None = Field(default=None, index=True)
+    via: str = ""
+    # Filled in on demand - what this means for India and its markets.
+    impact: str | None = Field(default=None, sa_column=Column(Text))
+    fetched_at: datetime = Field(default_factory=utcnow, index=True)
 
 
 class Setting(SQLModel, table=True):

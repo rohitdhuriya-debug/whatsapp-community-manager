@@ -23,6 +23,7 @@ from .routers import (
     drafts_api,
     drive_api,
     logs_api,
+    news_api,
     pages,
     schedules_api,
     settings_api,
@@ -81,6 +82,7 @@ app.include_router(devices_api.router, dependencies=_guard)
 app.include_router(campaigns_api.router, dependencies=_guard)
 app.include_router(assets_api.router, dependencies=_guard)
 app.include_router(autopilot_api.router, dependencies=_guard)
+app.include_router(news_api.router, dependencies=_guard)
 # Google redirects the browser to the OAuth callback, so it carries no bearer
 # token and must stay outside the guard.
 app.include_router(drive_api.router)

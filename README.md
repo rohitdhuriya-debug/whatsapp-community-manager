@@ -51,6 +51,53 @@ Approval is on by default. Turn it off and it posts unattended.
 
 Both share the same send gate, approval queue, scheduler and log.
 
+## Trending news
+
+A `/news` tab that answers one question: something happened — what does it mean for India,
+and for Indian markets?
+
+Four feeds ship by default — geopolitics, Indian markets, global macro, stocks in the news —
+and you can add your own. They refresh **hourly** on the scheduler and the page re-polls
+every **30 minutes**, so it is current without a reload.
+
+- **Recent only.** Headlines are asked for with a 24-hour window and re-checked against their
+  real publish date, so the feed is sorted by when the story broke, not by when the app
+  happened to find it. Anything over 36h is dropped; under 6h is flagged green.
+- **Stories, not homepages.** Market-data landing pages ("Share Market Live",
+  "Stock Market News Today | …") are filtered out, and web search is deliberately *not* a
+  fallback — it returns those pages almost exclusively, and they carry no date.
+- **What it means** runs one model call on a headline: what happened, global impact, India
+  impact, likely effect on Indian sectors. 90 words, never a buy or sell call.
+- **Post about this** carries the headline and its impact read straight into Compose as a brief.
+
+Keep feed queries **short**. Google News ANDs every term, so a wordy query matches nothing
+recent; the app trims over-long queries automatically, but a 5-word query is better than a
+13-word one.
+
+## Approve from your phone
+
+Every campaign picks where it is signed off:
+
+| | **Approve in dashboard** | **Approve on WhatsApp** |
+|---|---|---|
+| Where | The browser | Your own WhatsApp |
+| Flow | Generate → review → Send | Generate → draft arrives on your phone → reply |
+
+With **Approve on WhatsApp**, the finished draft is sent to your own number with a 4-character
+code. Reply `approve` (or `approve A7K2`, `ok`, `yes`, `haan`) and it goes out to the
+communities; reply `reject` and it is discarded. You get a receipt either way —
+`✅ Sent to 3 chats`.
+
+- Set the destination under **Settings → Approve on WhatsApp**. Left empty it uses the linked
+  phone's own number, which needs no setup.
+- Only replies *newer than the request* count, so an old "ok" sitting in the chat can never
+  release anything.
+- Unanswered requests expire after 12 hours rather than firing days later.
+- Replies are found by polling that one chat every 12s, and only while something is actually
+  waiting — WAHA runs in Docker, so a webhook would need container-to-host networking.
+- If the approval message itself fails to send, the draft is still saved. A failed
+  notification never loses your work.
+
 ## Two engines, switchable per send
 
 | | **OpenRouter (free)** | **Claude Code (Max plan)** |

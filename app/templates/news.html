@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+{% block title %}Trending · {{ app_title }}{% endblock %}
+
+{% block content %}
+<div class="flex items-start justify-between gap-6 mb-6">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">Trending</h1>
+    <p class="text-sm text-muted mt-1">
+      What's moving globally, and what it means for India and Indian markets.
+      Pulled every hour; this page refreshes itself every 30 minutes.
+    </p>
+  </div>
+  <div class="flex items-center gap-3 shrink-0">
+    <span class="text-xs text-muted" id="last-refresh">—</span>
+    <button id="btn-refresh"
+            class="press bg-accent text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:bg-accent/90">
+      Refresh now
+    </button>
+  </div>
+</div>
+
+<div class="flex items-center gap-2 mb-4 overflow-x-auto -mx-1 px-1" id="feed-tabs"></div>
+
+<div id="news-list" class="space-y-3">
+  <div class="rounded-2xl border border-line p-8 text-center text-sm text-muted">Loading headlines…</div>
+</div>
+
+<!-- Feed management -->
+<section class="step rounded-2xl border border-line p-6 mt-6">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h2 class="font-semibold">What it watches</h2>
+      <p class="text-sm text-muted mt-0.5">
+        Each feed is a saved search. Add your own to train it on what you care about.
+      </p>
+    </div>
+    <button id="btn-add-feed" class="press text-sm text-accent hover:underline">+ Add a feed</button>
+  </div>
+
+  <div id="feed-form" class="hidden mt-4 rounded-xl border border-line bg-wash p-4">
+    <div class="grid grid-cols-2 gap-3">
+      <label class="block">
+        <span class="text-xs font-medium text-muted">Name</span>
+        <input id="f-name" class="field mt-1" placeholder="Semiconductors &amp; India">
+      </label>
+      <label class="block">
+        <span class="text-xs font-medium text-muted">Category chip</span>
+        <input id="f-category" class="field mt-1" placeholder="Sectors">
+      </label>
+    </div>
+    <label class="block mt-3">
+      <span class="text-xs font-medium text-muted">What to search for</span>
+      <input id="f-query" class="field mt-1"
+             placeholder="semiconductor supply chain export curbs India electronics manufacturing">
+    </label>
+    <div class="flex items-center gap-2 mt-3">
+      <button id="btn-save-feed"
+              class="press bg-accent text-white text-sm font-medium rounded-xl px-4 py-2">Add feed</button>
+      <button id="btn-cancel-feed"
+              class="press text-sm font-medium border border-line bg-white rounded-xl px-4 py-2">Cancel</button>
+    </div>
+  </div>
+
+  <div id="feed-list" class="mt-4 space-y-2"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { feedId: null, feeds: [] };
+
+/* ── feeds ──────────────────────────────────────────────────────────────── */
+
+async function loadFeeds() {
+  state.feeds = await api.get('/api/news/feeds');
+
+  $('feed-tabs').innerHTML = [
+    `<button data-feed="" class="feed-tab chip shrink-0 text-sm rounded-xl border px-4 py-2
+       ${state.feedId === null ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
+       All</button>`,
+    ...state.feeds.filter((f) => f.active).map((f) => `
+      <button data-feed="${f.id}" class="feed-tab chip shrink-0 text-sm rounded-xl border px-4 py-2
+        ${state.feedId === f.id ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
+        ${escapeHtml(f.name)} <span class="text-muted">${f.items}</span>
+      </button>`),
+  ].join('');
+
+  $('feed-tabs').querySelectorAll('[data-feed]').forEach((b) =>
+    b.addEventListener('click', () => {
+      state.feedId = b.dataset.feed ? Number(b.dataset.feed) : null;
+      loadFeeds(); loadItems();
+    }));
+
+  $('feed-list').innerHTML = state.feeds.map((f) => `
+    <div class="row flex items-center justify-between gap-4 rounded-xl border border-line px-4 py-3">
+      <div class="min-w-0">
+        <div class="text-sm font-medium truncate">
+          ${escapeHtml(f.name)}
+          ${f.category ? `<span class="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-wash border border-line text-muted">${escapeHtml(f.category)}</span>` : ''}
+        </div>
+        <div class="text-xs text-muted mt-0.5 truncate">${escapeHtml(f.query)}</div>
+        <div class="text-xs text-muted mt-0.5">
+          ${f.items} headlines · ${f.last_fetched_label ? 'updated ' + escapeHtml(f.last_fetched_label) : 'never fetched'}
+        </div>
+      </div>
+      <div class="flex items-center gap-3 shrink-0">
+        <label class="flex items-center gap-1.5 text-xs text-muted">
+          <input type="checkbox" data-active="${f.id}" ${f.active ? 'checked' : ''}
+                 class="h-4 w-4 rounded border-line text-accent focus:ring-accent/30">on
+        </label>
+        <button data-del="${f.id}" class="press text-xs text-danger hover:underline">Remove</button>
+      </div>
+    </div>`).join('');
+
+  $('feed-list').querySelectorAll('[data-active]').forEach((el) =>
+    el.addEventListener('change', async () => {
+      try { await api.patch(`/api/news/feeds/${el.dataset.active}`, { active: el.checked }); loadFeeds(); }
+      catch (err) { showBanner(err.message); }
+    }));
+  $('feed-list').querySelectorAll('[data-del]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      if (!confirm('Remove this feed and its headlines?')) return;
+      try { await api.del(`/api/news/feeds/${b.dataset.del}`); state.feedId = null; loadFeeds(); loadItems(); }
+      catch (err) { showBanner(err.message); }
+    }));
+}
+
+$('btn-add-feed').addEventListener('click', () => $('feed-form').classList.toggle('hidden'));
+$('btn-cancel-feed').addEventListener('click', () => $('feed-form').classList.add('hidden'));
+$('btn-save-feed').addEventListener('click', async (e) => {
+  const query = $('f-query').value.trim();
+  if (!query) { showBanner('Say what it should search for.'); return; }
+  e.target.disabled = true;
+  try {
+    await api.post('/api/news/feeds', {
+      name: $('f-name').value.trim(), query, category: $('f-category').value.trim(),
+    });
+    ['f-name','f-query','f-category'].forEach((id) => $(id).value = '');
+    $('feed-form').classList.add('hidden');
+    await loadFeeds();
+    showBanner('Feed added. Hit Refresh now to pull it.', 'success');
+  } catch (err) { showBanner(err.message); }
+  finally { e.target.disabled = false; }
+});
+
+/* ── headlines ──────────────────────────────────────────────────────────── */
+
+async function loadItems() {
+  const host = $('news-list');
+  try {
+    const url = state.feedId ? `/api/news/items?feed_id=${state.feedId}&limit=60`
+                             : '/api/news/items?limit=60';
+    const data = await api.get(url);
+    $('last-refresh').textContent = `Updated ${data.last_refresh_label}`;
+
+    if (!data.items.length) {
+      host.innerHTML = `<div class="rounded-2xl border border-line p-10 text-center">
+        <p class="font-medium">No headlines yet</p>
+        <p class="text-sm text-muted mt-1">Press <strong>Refresh now</strong> — it pulls in a few seconds.</p>
+      </div>`;
+      return;
+    }
+
+    host.innerHTML = data.items.map((n) => `
+      <article class="rounded-2xl border border-line p-5" data-item="${n.id}">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <a href="${escapeHtml(n.url)}" target="_blank" rel="noopener"
+               class="text-[15px] font-medium hover:text-accent hover:underline">${escapeHtml(n.title)}</a>
+            <div class="flex flex-wrap items-center gap-1.5 mt-2">
+              ${n.category ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">${escapeHtml(n.category)}</span>` : ''}
+              <span class="text-xs text-muted">${escapeHtml(n.source || '')}</span>
+              <span class="text-xs ${n.fresh ? 'text-ok font-medium' : 'text-muted'}">· ${escapeHtml(n.age_label)}${n.dated ? '' : ' (found)'}</span>
+            </div>
+            ${n.snippet ? `<p class="text-sm text-muted mt-2 line-clamp-2">${escapeHtml(n.snippet)}</p>` : ''}
+          </div>
+        </div>
+
+        <div class="impact mt-3 ${n.impact ? '' : 'hidden'}">
+          ${n.impact ? `<div class="rounded-xl border border-accent/20 bg-accent/5 px-4 py-3">
+            <div class="text-xs font-medium text-accent">What it means for India</div>
+            <div class="text-sm mt-1 whitespace-pre-wrap">${escapeHtml(n.impact)}</div></div>` : ''}
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-line">
+          <button data-analyse="${n.id}"
+                  class="press text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">
+            ${n.impact ? 'Re-read impact' : 'What does this mean?'}
+          </button>
+          <button data-compose="${n.id}"
+                  class="press text-sm font-medium bg-accent text-white rounded-xl px-3.5 py-2 hover:bg-accent/90">
+            Post about this
+          </button>
+        </div>
+      </article>`).join('');
+
+    host.querySelectorAll('[data-analyse]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const card = b.closest('[data-item]');
+        const box = card.querySelector('.impact');
+        b.disabled = true; b.textContent = 'Reading…';
+        box.classList.remove('hidden');
+        box.innerHTML = '<div class="text-sm text-muted">Thinking about the India angle…</div>';
+        try {
+          const r = await api.post(`/api/news/items/${b.dataset.analyse}/analyse`, {});
+          box.innerHTML = `<div class="rounded-xl border border-accent/20 bg-accent/5 px-4 py-3">
+            <div class="text-xs font-medium text-accent">What it means for India</div>
+            <div class="text-sm mt-1 whitespace-pre-wrap">${escapeHtml(r.impact)}</div></div>`;
+          b.textContent = 'Re-read impact';
+        } catch (err) {
+          box.innerHTML = `<div class="text-sm text-danger">${escapeHtml(err.message)}</div>`;
+          b.textContent = 'What does this mean?';
+        } finally { b.disabled = false; }
+      }));
+
+    host.querySelectorAll('[data-compose]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        try {
+          const r = await api.get(`/api/news/items/${b.dataset.compose}/brief`);
+          sessionStorage.setItem('upsurge:brief', r.brief);
+          window.location.href = '/compose';
+        } catch (err) { showBanner(err.message); }
+      }));
+  } catch (err) {
+    host.innerHTML = `<div class="rounded-2xl border border-danger/20 bg-danger/5 p-5 text-sm text-danger">
+      ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+$('btn-refresh').addEventListener('click', async (e) => {
+  e.target.disabled = true; e.target.textContent = 'Pulling…';
+  try {
+    const r = await api.post('/api/news/refresh', {});
+    showBanner(`${r.added} new headline${r.added === 1 ? '' : 's'} across ${r.feeds} feeds.`, 'success');
+    await loadFeeds(); await loadItems();
+  } catch (err) { showBanner(err.message); }
+  finally { e.target.disabled = false; e.target.textContent = 'Refresh now'; }
+});
+
+(async () => { await loadFeeds(); await loadItems(); })();
+
+// Auto-refresh every 30 minutes, as asked. Reads what the hourly job stored -
+// it does not itself trigger a fetch, so leaving the tab open costs nothing.
+setInterval(() => { loadFeeds(); loadItems(); }, 30 * 60 * 1000);
+</script>
+{% endblock %}

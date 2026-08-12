@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -36,6 +36,7 @@ class CampaignIn(BaseModel):
     extra_instructions: str = ""
     use_research: bool = True
     send_cover_image: bool = True
+    approval_mode: Literal["dashboard", "whatsapp"] = "dashboard"
     target_ids: list[int] = []
 
 
@@ -49,6 +50,7 @@ class CampaignPatch(BaseModel):
     extra_instructions: str | None = None
     use_research: bool | None = None
     send_cover_image: bool | None = None
+    approval_mode: Literal["dashboard", "whatsapp"] | None = None
     target_ids: list[int] | None = None
 
 
@@ -89,6 +91,7 @@ def _serialise(session: Session, campaign: Campaign) -> dict[str, Any]:
         "extra_instructions": campaign.extra_instructions,
         "use_research": campaign.use_research,
         "send_cover_image": campaign.send_cover_image,
+        "approval_mode": campaign.approval_mode,
         "target_ids": [t.id for t in targets],
         "targets": [{"id": t.id, "name": t.name, "type": t.type.value} for t in targets],
         "created_at": campaign.created_at.isoformat(),
@@ -139,6 +142,7 @@ def create_campaign(
         extra_instructions=payload.extra_instructions.strip(),
         use_research=payload.use_research,
         send_cover_image=payload.send_cover_image,
+        approval_mode=payload.approval_mode,
     )
     session.add(campaign)
     session.commit()
@@ -243,11 +247,34 @@ async def _generate_in_background(campaign_id: int, job: jobs.Job) -> dict[str, 
         if campaign is None:
             raise RuntimeError("Campaign was deleted while generating.")
         try:
-            return await composer.run_campaign(
+            result = await composer.run_campaign(
                 session, campaign, on_phase=job.set_phase
             )
         except composer.ComposerError as exc:
             raise RuntimeError(str(exc)) from exc
+
+        # Sign-off happens on WhatsApp: push the draft to your own number and
+        # wait for the reply rather than for a click in the dashboard.
+        if campaign.approval_mode == "whatsapp":
+            from ..services import approvals
+
+            job.set_phase("saving", "Sending for approval on WhatsApp…")
+            drafts = session.exec(
+                select(Draft).where(
+                    Draft.campaign_id == campaign.id,
+                    Draft.status == DraftStatus.pending,
+                )
+            ).all()
+            try:
+                result["approval"] = await approvals.request(
+                    session, campaign, list(drafts)
+                )
+            except Exception as exc:
+                # Never lose the draft over a failed notification - it stays
+                # pending and can still be approved in the dashboard.
+                result["approval_error"] = str(exc)
+
+        return result
 
 
 @router.post("/{campaign_id}/send")

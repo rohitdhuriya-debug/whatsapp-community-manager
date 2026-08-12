@@ -29,6 +29,11 @@ def compose_page(request: Request, session: Session = Depends(get_session)):
     return page(request, "composer.html", session, active_page="compose")
 
 
+@router.get("/news")
+def news_page(request: Request, session: Session = Depends(get_session)):
+    return page(request, "news.html", session, active_page="news")
+
+
 @router.get("/autopilot")
 def autopilot_page(request: Request, session: Session = Depends(get_session)):
     return page(request, "autopilot.html", session, active_page="autopilot")

@@ -310,6 +310,19 @@ async def list_channels(session_name: str | None = None) -> list[dict[str, Any]]
 # ---------------------------------------------------------------------------
 
 
+async def fetch_messages(
+    chat_id: str, limit: int = 20, session_name: str | None = None
+) -> list[dict[str, Any]]:
+    """Recent messages in a chat, newest first. Used to read approval replies."""
+    name = session_name or config.waha_session
+    data = await _request(
+        "GET",
+        f"/api/{name}/chats/{chat_id}/messages",
+        params={"limit": limit, "downloadMedia": "false"},
+    )
+    return data if isinstance(data, list) else []
+
+
 async def send_text(
     chat_id: str, text: str, link_preview: bool = True, session_name: str | None = None
 ) -> dict[str, Any]:

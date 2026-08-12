@@ -36,14 +36,46 @@ def get_scheduler() -> AsyncIOScheduler | None:
     return _scheduler
 
 
+NEWS_INTERVAL_MINUTES = 60
+
+
 def start() -> AsyncIOScheduler:
     global _scheduler
     if _scheduler is None:
         _scheduler = AsyncIOScheduler(timezone=config.tz)
         _scheduler.start()
         log.info("Scheduler started (timezone %s)", config.timezone)
+
+        # Standing job, separate from user schedules: news costs no API quota,
+        # so it can refresh hourly regardless of what else is configured.
+        _scheduler.add_job(
+            refresh_news,
+            trigger=IntervalTrigger(minutes=NEWS_INTERVAL_MINUTES, timezone=config.tz),
+            id="news-refresh",
+            name="Refresh news feeds",
+            misfire_grace_time=MISFIRE_GRACE_SECONDS,
+            coalesce=True,
+            max_instances=1,
+            replace_existing=True,
+        )
     reload_jobs()
     return _scheduler
+
+
+async def refresh_news() -> None:
+    """Hourly headline pull. Keyless, so it never touches the model budget."""
+    from . import news
+
+    try:
+        with session_scope() as session:
+            news.seed_defaults(session)
+            result = await news.refresh_all(session)
+            log.info(
+                "News refresh: %s new item(s) across %s feed(s).",
+                result["added"], result["feeds"],
+            )
+    except Exception:
+        log.exception("News refresh failed")
 
 
 def shutdown() -> None:

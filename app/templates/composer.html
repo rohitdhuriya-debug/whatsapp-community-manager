@@ -117,6 +117,17 @@ e.g. A checklist of 10 free AI tools for Indian founders, with pricing and when 
     </label>
   </div>
 
+  <div class="mt-4">
+    <span class="text-sm font-medium">Approve where?</span>
+    <div class="flex flex-wrap gap-2 mt-2" id="approval-choice">
+      <button data-approval="dashboard"
+              class="appr-btn chip text-sm border rounded-xl px-4 py-2">Here, in the dashboard</button>
+      <button data-approval="whatsapp"
+              class="appr-btn chip text-sm border rounded-xl px-4 py-2">On WhatsApp, from my phone</button>
+    </div>
+    <p class="text-xs text-muted mt-2" id="approval-hint"></p>
+  </div>
+
   <div class="flex items-center gap-3 mt-5">
     <button id="btn-generate"
             class="press bg-accent text-white text-sm font-medium rounded-xl px-6 py-2.5
@@ -264,6 +275,7 @@ const state = {
   deviceId: null,
   kind: 'groups',
   platform: 'whatsapp',
+  approval: 'dashboard',
   chats: { groups: [], channels: [] },
   picked: new Map(),
   campaignId: null,
@@ -446,6 +458,20 @@ async function loadEngines() {
   } catch (_) {}
 }
 
+function setApproval(mode) {
+  state.approval = mode;
+  document.querySelectorAll('.appr-btn').forEach((b) => {
+    const on = b.dataset.approval === mode;
+    b.className = `appr-btn chip text-sm border rounded-xl px-4 py-2 ${
+      on ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}`;
+  });
+  $('approval-hint').textContent = mode === 'whatsapp'
+    ? 'The draft goes to your own WhatsApp number first. Reply "approve <code>" there and it goes out to the communities.'
+    : 'Review and send from the preview below.';
+}
+document.querySelectorAll('.appr-btn').forEach((b) =>
+  b.addEventListener('click', () => setApproval(b.dataset.approval)));
+
 const chosenLanguage = () => $('language').value === '__custom'
   ? ($('language-custom').value.trim() || 'english') : $('language').value;
 
@@ -509,6 +535,7 @@ async function generate() {
       model_override: $('engine').value === 'claude_code' ? $('claude-model').value : null,
       use_research: $('use-research').checked,
       send_cover_image: $('send-cover').checked,
+      approval_mode: state.approval,
       target_ids: targets.map((t) => t.id),
     };
     const campaign = state.campaignId
@@ -522,6 +549,11 @@ async function generate() {
     $('progress-bar').style.transform = 'scaleX(1)';
     setTimeout(() => $('progress-wrap').classList.add('hidden'), 600);
     await showPreview(result);
+    if (result.approval) {
+      showBanner(`Sent to your WhatsApp for approval. Reply "approve ${result.approval.code}" there.`, 'success');
+    } else if (result.approval_error) {
+      showBanner(`Could not send for WhatsApp approval: ${result.approval_error}`);
+    }
     loadQueue();
   } catch (err) {
     $('progress-wrap').classList.add('hidden');
@@ -809,6 +841,17 @@ async function loadQueue() {
   } catch (err) { host.innerHTML = ''; }
 }
 
+// Arriving from Trending → "Post about this" hands the brief over here.
+try {
+  const handoff = sessionStorage.getItem('upsurge:brief');
+  if (handoff) {
+    $('brief').value = handoff;
+    sessionStorage.removeItem('upsurge:brief');
+    setTimeout(() => $('brief').scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+  }
+} catch (e) { /* private mode */ }
+
+setApproval('dashboard');
 setRepeat('once');
 loadDevices();
 loadEngines();

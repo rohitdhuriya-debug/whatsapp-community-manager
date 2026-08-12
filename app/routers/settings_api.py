@@ -34,6 +34,8 @@ class SettingsPatch(BaseModel):
     global_sending_enabled: bool | None = None
     # "" clears the stored key and falls back to .env (if that has one).
     openrouter_api_key: str | None = None
+    # Where "approve on WhatsApp" drafts are sent. "" = your own number.
+    approval_whatsapp_chat: str | None = None
 
 
 class KeyTest(BaseModel):
@@ -57,7 +59,21 @@ def read_settings(session: Session = Depends(get_session)) -> dict[str, Any]:
         "waha_base_url": config.waha_base_url,
         "calls_today": calls_today(session),
         "free_daily_limit": FREE_DAILY_LIMIT,
+        "approval_whatsapp_chat": values.get("approval_whatsapp_chat", ""),
+        # What the draft would actually be sent to right now, so the page can
+        # show the resolved number rather than an empty box meaning "default".
+        "approval_chat_resolved": _approval_resolved(session),
     }
+
+
+def _approval_resolved(session: Session) -> str:
+    from ..services import approvals
+
+    try:
+        destination = approvals.approval_chat(session)
+    except Exception:
+        return ""
+    return destination[0] if destination else ""
 
 
 @router.patch("")
@@ -89,6 +105,20 @@ def update_settings(
                 detail="That does not look like an OpenRouter key — they start with 'sk-or-'.",
             )
         set_api_key(session, key)
+
+    if patch.approval_whatsapp_chat is not None:
+        chat = patch.approval_whatsapp_chat.strip()
+        # Accept a plain number or a full chat id; reject anything that would
+        # silently never deliver.
+        if chat and "@" not in chat and not chat.lstrip("+").isdigit():
+            raise HTTPException(
+                status_code=400,
+                detail="Enter a phone number with country code (919876543210) "
+                       "or a full chat id ending in @c.us.",
+            )
+        from ..services import approvals
+
+        approvals.set_approval_chat(session, chat)
 
     return read_settings(session)
 
