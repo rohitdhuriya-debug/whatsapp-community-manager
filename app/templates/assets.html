@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Files · {{ app_title }}{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-semibold tracking-tight">Files</h1>
+  <p class="text-sm text-muted mt-1">
+    Every PDF and spreadsheet this app has generated. Click one to preview it.
+  </p>
+</div>
+
+<div class="grid grid-cols-12 gap-5">
+  <div class="col-span-5">
+    <div id="asset-list" class="rounded-2xl border border-line overflow-hidden">
+      <div class="px-5 py-8 text-center text-sm text-muted">Loading…</div>
+    </div>
+  </div>
+
+  <div class="col-span-7">
+    <div id="asset-preview" class="rounded-2xl border border-line p-8 text-center text-sm text-muted">
+      Select a file to preview it.
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let assetsCache = [];
+
+async function loadAssets() {
+  const host = document.getElementById('asset-list');
+  try {
+    assetsCache = await api.get('/api/assets');
+    if (!assetsCache.length) {
+      host.innerHTML = `<div class="px-5 py-10 text-center">
+        <p class="font-medium text-ink">No files yet</p>
+        <p class="text-sm text-muted mt-1">Generate a PDF or Excel from
+          <a href="/compose" class="text-accent hover:underline">Compose</a>.</p></div>`;
+      return;
+    }
+    host.innerHTML = assetsCache.map((a, i) => `
+      <button data-file="${escapeHtml(a.filename)}" data-i="${i}"
+              class="asset-row w-full text-left px-5 py-3.5 hover:bg-wash border-b border-line last:border-0 flex items-center gap-3">
+        <span class="text-xl shrink-0">${a.kind === 'pdf' ? '📄' : '📊'}</span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-sm truncate">${escapeHtml(a.filename)}</span>
+          <span class="block text-xs text-muted mt-0.5">${escapeHtml(a.modified_label)} · ${escapeHtml(a.size)}</span>
+        </span>
+      </button>`).join('');
+
+    host.querySelectorAll('.asset-row').forEach((b) =>
+      b.addEventListener('click', () => {
+        host.querySelectorAll('.asset-row').forEach((r) => r.classList.remove('bg-accent/5'));
+        b.classList.add('bg-accent/5');
+        showAsset(assetsCache[Number(b.dataset.i)]);
+      }));
+
+    if (assetsCache.length) {
+      host.querySelector('.asset-row').click();
+    }
+  } catch (err) {
+    host.innerHTML = `<div class="px-5 py-6 text-sm text-danger">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function showAsset(asset) {
+  const host = document.getElementById('asset-preview');
+  host.className = 'rounded-2xl border border-line overflow-hidden';
+  host.innerHTML = `
+    <div class="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-line">
+      <div class="min-w-0">
+        <div class="text-sm font-medium truncate">${escapeHtml(asset.filename)}</div>
+        <div class="text-xs text-muted mt-0.5">${escapeHtml(asset.size)} · ${escapeHtml(asset.modified_label)}</div>
+      </div>
+      <a href="/api/assets/${encodeURIComponent(asset.filename)}" download
+         class="shrink-0 text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Download</a>
+    </div>
+    <div id="asset-body" class="p-5"><span class="text-sm text-muted">Loading preview…</span></div>`;
+
+  const body = document.getElementById('asset-body');
+  const file = encodeURIComponent(asset.filename);
+
+  try {
+    const data = await api.get(`/api/assets/${file}/preview`);
+    if (asset.kind === 'pdf') {
+      // Page images rather than an <iframe>: embedded PDF rendering depends on
+      // a browser plugin and shows a blank panel when it is unavailable.
+      body.className = 'p-5 max-h-[74vh] overflow-y-auto bg-wash';
+      const pages = data.pages || 1;
+      body.innerHTML = Array.from({ length: pages }, (_, i) => `
+        <img src="/api/assets/${file}/page/${i}" alt="Page ${i + 1}" loading="lazy"
+             class="w-full rounded-xl border border-line bg-white shadow-sm mb-4 last:mb-0">
+      `).join('') +
+        `<a href="/api/assets/${file}/inline" target="_blank" rel="noopener"
+            class="block text-center text-sm text-accent hover:underline py-2">
+           Open the full PDF in a new tab →</a>`;
+    } else {
+      body.className = 'p-5';
+      body.innerHTML = renderSheetPreview(data);
+    }
+  } catch (err) {
+    body.innerHTML = `<span class="text-sm text-danger">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+function renderSheetPreview(data) {
+  if (data.error) return `<span class="text-sm text-danger">${escapeHtml(data.error)}</span>`;
+  return (data.sheets || []).map((s) => `
+    <div class="mb-5 last:mb-0">
+      <div class="flex items-baseline justify-between gap-3 mb-2">
+        <span class="text-sm font-medium">${escapeHtml(s.title || s.name)}</span>
+        <span class="text-xs text-muted">${s.total_rows} rows${s.truncated ? ' (showing first ' + s.rows.length + ')' : ''}</span>
+      </div>
+      <div class="overflow-x-auto border border-line rounded-xl">
+        <table class="w-full text-[13px]">
+          <thead class="bg-wash">
+            <tr>${(s.columns || []).map((c) =>
+              `<th class="text-left font-medium px-3 py-2 border-b border-line whitespace-nowrap">${escapeHtml(c)}</th>`).join('')}</tr>
+          </thead>
+          <tbody class="divide-y divide-line">
+            ${(s.rows || []).map((r) => `<tr>${r.map((c) =>
+              `<td class="px-3 py-2 align-top">${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`).join('');
+}
+
+loadAssets();
+</script>
+{% endblock %}

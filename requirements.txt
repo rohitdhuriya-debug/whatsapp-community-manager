@@ -1,0 +1,35 @@
+# WhatsApp Community Manager - Python dependencies
+# Everything here is free / open source. No paid SDKs.
+
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+sqlmodel>=0.0.22
+apscheduler>=3.10.4,<4.0
+httpx>=0.27.0
+python-dotenv>=1.0.1
+jinja2>=3.1.4
+python-multipart>=0.0.9
+
+# Research sources (keyless, unlimited)
+ddgs>=9.0.0
+feedparser>=6.0.11
+
+# Asset generation (PDF / Excel resources)
+reportlab>=4.2.0
+openpyxl>=3.1.5
+
+# Reading back what we generated: page counts, and rasterising PDF pages to
+# PNG so previews do not depend on the browser having a PDF plugin.
+pypdf>=5.0.0
+pymupdf>=1.24.0
+
+# Google Drive hosting for channel posts (channels take a link, not a file)
+google-auth>=2.30.0
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.140.0
+
+# Human-readable cron preview in the schedule editor
+cron-descriptor>=1.4.5
+
+# Timezone data (Asia/Kolkata) - bundled on macOS but pinned for safety
+tzdata>=2024.1

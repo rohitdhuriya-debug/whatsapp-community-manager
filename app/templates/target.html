@@ -1,0 +1,317 @@
+{% extends "base.html" %}
+{% block title %}{{ target.name }} · {{ app_title }}{% endblock %}
+
+{% block content %}
+<div class="flex items-start justify-between gap-6 mb-6">
+  <div class="min-w-0">
+    <h1 class="text-2xl font-semibold tracking-tight truncate">{{ target.name }}</h1>
+    <p class="text-sm text-muted mt-1 font-mono truncate">{{ target.chat_id }}</p>
+    <div class="flex flex-wrap items-center gap-1.5 mt-3">
+      {% if target.niche %}
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-wash border border-line text-muted">{{ target.niche }}</span>
+      {% endif %}
+      <span class="text-[11px] px-2 py-0.5 rounded-full bg-wash border border-line text-muted">{{ target.type.value }}</span>
+      <span class="text-[11px] px-2 py-0.5 rounded-full bg-wash border border-line text-muted">{{ target.language.value }}</span>
+      {% if target.approval_required %}
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-accent">approval required</span>
+      {% else %}
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">auto-send</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <label class="flex items-center gap-2.5 shrink-0 pt-1">
+    <span class="text-sm text-muted">Enabled</span>
+    <input type="checkbox" id="t-enabled" {% if target.enabled %}checked{% endif %}
+           class="h-5 w-5 rounded border-line text-accent focus:ring-accent/30">
+  </label>
+</div>
+
+<!-- Tabs -->
+<div class="flex items-center gap-1 border-b border-line mb-6 -mx-1 px-1 overflow-x-auto">
+  {% for key, label in [('overview','Overview'), ('persona','Persona'), ('schedule','Schedule'),
+                        ('pending','Pending'), ('history','History')] %}
+    <button data-pane="{{ key }}"
+            class="pane-btn px-4 py-2.5 text-sm font-medium border-b-2 -mb-px whitespace-nowrap
+                   {{ 'border-accent text-accent' if key == 'overview' else 'border-transparent text-muted hover:text-ink' }}">
+      {{ label }}
+      {% if key == 'pending' and pending_drafts %}
+        <span class="ml-1 text-[11px] bg-accent text-white rounded-full px-1.5 py-0.5">{{ pending_drafts|length }}</span>
+      {% endif %}
+    </button>
+  {% endfor %}
+</div>
+
+<!-- ── Overview ────────────────────────────────────────────────────────── -->
+<div data-pane-body="overview">
+  <div class="grid grid-cols-3 gap-4">
+    <div class="rounded-2xl border border-line p-5">
+      <div class="text-xs text-muted">Next run</div>
+      <div class="mt-1 text-sm font-medium" id="ov-next">—</div>
+    </div>
+    <div class="rounded-2xl border border-line p-5">
+      <div class="text-xs text-muted">Last sent</div>
+      <div class="mt-1 text-sm font-medium" id="ov-last">—</div>
+    </div>
+    <div class="rounded-2xl border border-line p-5">
+      <div class="text-xs text-muted">Messages sent</div>
+      <div class="mt-1 text-sm font-medium" id="ov-count">—</div>
+    </div>
+  </div>
+
+  <section class="rounded-2xl border border-line p-6 mt-5">
+    <h2 class="font-semibold">Compose now</h2>
+    <p class="text-sm text-muted mt-1">
+      Runs research → draft immediately. Costs one free model call.
+      {% if target.approval_required %}The draft lands in Pending for your approval.
+      {% else %}<span class="text-amber-700">Approval is off — this sends straight to WhatsApp.</span>{% endif %}
+    </p>
+    <div class="flex items-center gap-3 mt-4">
+      <select id="compose-type" class="field w-auto">
+        <option value="news">News roundup</option>
+        <option value="tip">Tip</option>
+        <option value="resource">Resource</option>
+        <option value="poll">Poll</option>
+      </select>
+      <button id="btn-compose"
+              class="bg-accent text-white text-sm font-medium rounded-xl px-5 py-2.5 hover:bg-accent/90 transition">
+        Compose now
+      </button>
+    </div>
+    <div id="compose-result" class="mt-4"></div>
+  </section>
+
+  <section class="rounded-2xl border border-line p-6 mt-5">
+    <h2 class="font-semibold">Send a test message</h2>
+    <p class="text-sm text-muted mt-1">
+      Plain text, no AI. Use this to confirm delivery works — on a private test group, never a live community.
+    </p>
+    <textarea id="test-text" class="field mt-4" rows="3"
+      >Test from WhatsApp Manager ✅</textarea>
+    <button id="btn-test"
+            class="mt-3 text-sm font-medium border border-line rounded-xl px-5 py-2.5 hover:bg-wash transition">
+      Send test message
+    </button>
+  </section>
+
+  <section class="rounded-2xl border border-danger/20 p-6 mt-5">
+    <h2 class="font-semibold text-danger">Delete target</h2>
+    <p class="text-sm text-muted mt-1">
+      Removes this target, its schedules, drafts and logs. Your WhatsApp group is untouched.
+    </p>
+    <button id="btn-delete"
+            class="mt-4 text-sm font-medium text-danger border border-danger/30 rounded-xl px-5 py-2.5 hover:bg-danger/5 transition">
+      Delete
+    </button>
+  </section>
+</div>
+
+<!-- ── Persona ─────────────────────────────────────────────────────────── -->
+<div data-pane-body="persona" class="hidden">
+  <section class="rounded-2xl border border-line p-6">
+    <div class="flex items-center justify-between">
+      <h2 class="font-semibold">Persona &amp; brief</h2>
+      <span class="text-xs text-muted">Saved changes apply from the next run</span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mt-5">
+      <label class="block">
+        <span class="text-sm font-medium">Display name</span>
+        <input id="p-name" class="field mt-1.5" value="{{ target.name }}">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">Niche</span>
+        <input id="p-niche" class="field mt-1.5" value="{{ target.niche }}">
+      </label>
+    </div>
+
+    <label class="block mt-4">
+      <span class="text-sm font-medium">Persona prompt</span>
+      <textarea id="p-persona" class="field mt-1.5" rows="6">{{ target.persona_prompt }}</textarea>
+    </label>
+
+    <label class="block mt-4">
+      <span class="text-sm font-medium">Research instructions</span>
+      <textarea id="p-research" class="field mt-1.5" rows="3">{{ target.research_instructions }}</textarea>
+    </label>
+
+    <div class="grid grid-cols-2 gap-4 mt-4">
+      <label class="block">
+        <span class="text-sm font-medium">Tone</span>
+        <input id="p-tone" class="field mt-1.5" value="{{ target.tone }}">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">Language</span>
+        <select id="p-language" class="field mt-1.5">
+          <option value="hinglish" {% if target.language.value == 'hinglish' %}selected{% endif %}>Hinglish (Roman script)</option>
+          <option value="english" {% if target.language.value == 'english' %}selected{% endif %}>English</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mt-4">
+      <label class="block">
+        <span class="text-sm font-medium">CTA link</span>
+        <input id="p-cta" class="field mt-1.5" value="{{ target.cta_link }}">
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">Banned topics</span>
+        <input id="p-banned" class="field mt-1.5" value="{{ target.banned_topics }}">
+      </label>
+    </div>
+
+    <label class="block mt-4">
+      <span class="text-sm font-medium">Example messages</span>
+      <span class="block text-xs text-muted mt-0.5">One per blank-line-separated block.</span>
+      <textarea id="p-examples" class="field mt-1.5 font-mono text-[13px]" rows="6">{{ target.example_messages|join('\n\n') }}</textarea>
+    </label>
+
+    <div class="grid grid-cols-2 gap-4 mt-4">
+      <label class="block">
+        <span class="text-sm font-medium">Model override</span>
+        <span class="block text-xs text-muted mt-0.5">Blank = use the app default. Must end <code>:free</code>.</span>
+        <select id="p-model" class="field mt-1.5"><option value="">Loading…</option></select>
+      </label>
+      <label class="block">
+        <span class="text-sm font-medium">Investment disclaimer</span>
+        <span class="block text-xs text-muted mt-0.5">
+          Appends “{{ disclaimer_text }}”
+        </span>
+        <select id="p-disclaimer" class="field mt-1.5">
+          <option value="auto"   {% if target.disclaimer_mode == 'auto' %}selected{% endif %}>Auto — detect from niche{% if disclaimer_auto %} (currently ON){% else %} (currently off){% endif %}</option>
+          <option value="always" {% if target.disclaimer_mode == 'always' %}selected{% endif %}>Always add it</option>
+          <option value="never"  {% if target.disclaimer_mode == 'never' %}selected{% endif %}>Never add it</option>
+        </select>
+      </label>
+    </div>
+
+    <label class="flex items-center justify-between gap-4 mt-4 py-2 border-t border-line pt-4">
+      <span>
+        <span class="text-sm font-medium block">Require approval</span>
+        <span class="text-xs text-muted">Off = drafts send automatically.</span>
+      </span>
+      <input type="checkbox" id="p-approval" {% if target.approval_required %}checked{% endif %}
+             class="h-5 w-5 rounded border-line text-accent focus:ring-accent/30">
+    </label>
+
+    <div class="flex items-center gap-3 mt-6">
+      <button id="btn-save-persona"
+              class="bg-accent text-white text-sm font-medium rounded-xl px-5 py-2.5 hover:bg-accent/90 transition">
+        Save persona
+      </button>
+      <span id="persona-saved" class="text-sm text-ok hidden">Saved</span>
+    </div>
+  </section>
+</div>
+
+<!-- ── Schedule ────────────────────────────────────────────────────────── -->
+<div data-pane-body="schedule" class="hidden">
+  <section class="rounded-2xl border border-line p-6">
+    <h2 class="font-semibold">Schedules</h2>
+    <p class="text-sm text-muted mt-1">All times {{ timezone }}.</p>
+    <div id="sched-list" class="mt-5 space-y-3"></div>
+
+    <div class="mt-6 pt-6 border-t border-line">
+      <h3 class="text-sm font-medium">Add a schedule</h3>
+      <div class="grid grid-cols-2 gap-4 mt-3">
+        <label class="block">
+          <span class="text-xs text-muted">When</span>
+          <select id="s-preset" class="field mt-1.5">
+            <option value="0 9 * * *">Daily at 9:00 AM</option>
+            <option value="0 10 * * 1">Weekly, Monday 10:00 AM</option>
+            <option value="custom">Custom cron…</option>
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-xs text-muted">Content type</span>
+          <select id="s-content" class="field mt-1.5">
+            <option value="news">News roundup</option>
+            <option value="tip">Tip</option>
+            <option value="resource">Resource</option>
+            <option value="poll">Poll</option>
+          </select>
+        </label>
+      </div>
+      <input id="s-cron" class="field mt-3 hidden font-mono" placeholder="0 9 * * *">
+      <p id="s-preview" class="text-xs text-muted mt-2"></p>
+      <button id="btn-add-sched"
+              class="mt-4 text-sm font-medium border border-line rounded-xl px-5 py-2.5 hover:bg-wash transition">
+        Add schedule
+      </button>
+    </div>
+  </section>
+</div>
+
+<!-- ── Pending ─────────────────────────────────────────────────────────── -->
+<div data-pane-body="pending" class="hidden">
+  {% if pending_drafts %}
+    <div class="space-y-5">
+      {% for d in pending_drafts %}
+        {% set t = target %}
+        {% include "partials/draft_card.html" %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="rounded-2xl border border-line p-10 text-center">
+      <p class="font-medium">No drafts waiting</p>
+      <p class="text-sm text-muted mt-1">Hit <em>Compose now</em> on the Overview tab to make one.</p>
+    </div>
+  {% endif %}
+</div>
+
+<!-- ── History ─────────────────────────────────────────────────────────── -->
+<div data-pane-body="history" class="hidden">
+  <section class="rounded-2xl border border-line overflow-hidden">
+    <div class="px-6 py-4 border-b border-line">
+      <h2 class="font-semibold">Send history</h2>
+      <p class="text-sm text-muted mt-0.5">Every outbound attempt, newest first.</p>
+    </div>
+    <div id="log-list"></div>
+  </section>
+
+  <section class="rounded-2xl border border-line overflow-hidden mt-5">
+    <div class="px-6 py-4 border-b border-line">
+      <h2 class="font-semibold">All drafts</h2>
+    </div>
+    {% if drafts %}
+      <table class="w-full text-sm">
+        <thead class="bg-wash text-xs text-muted">
+          <tr>
+            <th class="text-left font-medium px-6 py-2.5">Created</th>
+            <th class="text-left font-medium px-3 py-2.5">Type</th>
+            <th class="text-left font-medium px-3 py-2.5">Status</th>
+            <th class="text-left font-medium px-3 py-2.5">Preview</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-line">
+          {% for d in drafts %}
+            <tr>
+              <td class="px-6 py-3 whitespace-nowrap text-muted">{{ d.created_at|fmt_local }}</td>
+              <td class="px-3 py-3">{{ d.content_type.value }}</td>
+              <td class="px-3 py-3">
+                {% set colours = {'sent':'bg-ok/10 text-ok border-ok/20',
+                                  'failed':'bg-danger/10 text-danger border-danger/20',
+                                  'pending':'bg-accent/10 text-accent border-accent/20',
+                                  'rejected':'bg-wash text-muted border-line',
+                                  'approved':'bg-wash text-muted border-line'} %}
+                <span class="text-[11px] px-2 py-0.5 rounded-full border {{ colours.get(d.status.value, '') }}">
+                  {{ d.status.value }}
+                </span>
+              </td>
+              <td class="px-3 py-3 text-muted">{{ d.content|truncate_text(70) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="px-6 py-8 text-center text-sm text-muted">Nothing yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>const TARGET_ID = {{ target.id }};</script>
+<script src="/static/drafts.js"></script>
+<script src="/static/target.js"></script>
+{% endblock %}

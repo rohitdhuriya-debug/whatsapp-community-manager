@@ -1,0 +1,809 @@
+{% extends "base.html" %}
+{% block title %}Compose · {{ app_title }}{% endblock %}
+
+{% block content %}
+<div class="mb-7">
+  <h1 class="text-2xl font-semibold tracking-tight">Compose</h1>
+  <p class="text-sm text-muted mt-1">
+    Pick chats, describe what you want, review it, then send or schedule.
+  </p>
+</div>
+
+<!-- ── 1 · Send to ────────────────────────────────────────────────────── -->
+<section class="step rounded-2xl border border-line p-6 mb-4">
+  <div class="flex items-center justify-between gap-4">
+    <h2 class="font-semibold flex items-center gap-2.5">
+      <span class="h-6 w-6 rounded-full bg-accent/10 text-accent grid place-items-center text-xs font-semibold">1</span>
+      Send to
+    </h2>
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-muted" id="pick-count">0 selected</span>
+      <button id="btn-reload" class="press text-sm text-accent hover:underline">Reload list</button>
+    </div>
+  </div>
+
+  <div id="device-chips" class="flex flex-wrap gap-2 mt-4">
+    <span class="text-sm text-muted">Loading accounts…</span>
+  </div>
+
+  <div class="flex items-center gap-2 mt-4">
+    <div class="flex items-center gap-1 p-1 bg-wash rounded-xl border border-line shrink-0">
+      <button data-kind="groups" class="kind-btn chip px-4 py-1.5 rounded-lg text-sm font-medium bg-white shadow-sm">Groups</button>
+      <button data-kind="channels" class="kind-btn chip px-4 py-1.5 rounded-lg text-sm font-medium text-muted">Channels</button>
+    </div>
+    <input id="chat-search" class="field" placeholder="Filter by name…">
+    <button id="btn-clear-picks"
+            class="press shrink-0 text-sm font-medium border border-line rounded-xl px-3.5 py-2.5 hover:bg-wash">
+      Clear
+    </button>
+  </div>
+  <p id="chat-hint" class="text-xs text-muted mt-2"></p>
+
+  <div id="chat-list"
+       class="scroll-slim mt-3 border border-line rounded-xl divide-y divide-line max-h-72 overflow-y-auto">
+    <div class="px-4 py-8 text-center text-sm text-muted">Pick an account first.</div>
+  </div>
+
+  <div id="picked-summary" class="hidden mt-3 flex flex-wrap gap-1.5"></div>
+</section>
+
+<!-- ── 2 · The brief ──────────────────────────────────────────────────── -->
+<section class="step rounded-2xl border border-line p-6 mb-4">
+  <h2 class="font-semibold flex items-center gap-2.5">
+    <span class="h-6 w-6 rounded-full bg-accent/10 text-accent grid place-items-center text-xs font-semibold">2</span>
+    What do you want to send?
+  </h2>
+
+  <textarea id="brief" rows="4"
+    class="field mt-4 text-[15px] leading-relaxed"
+    placeholder="Describe it in your own words — the topic, what to include, the angle, and anything to avoid.
+
+e.g. A checklist of 10 free AI tools for Indian founders, with pricing and when to upgrade. Punchy, no hype, end with a save-this line."></textarea>
+
+  <div class="flex flex-wrap gap-2 mt-3" id="brief-examples"></div>
+
+  <div class="grid grid-cols-3 gap-4 mt-5">
+    <label class="block">
+      <span class="text-sm font-medium">Deliver as</span>
+      <select id="output-type" class="field mt-1.5">
+        <option value="message">WhatsApp message</option>
+        <option value="poll">Poll</option>
+        <option value="pdf">PDF resource</option>
+        <option value="excel">Excel sheet</option>
+      </select>
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Language</span>
+      <select id="language" class="field mt-1.5">
+        <option value="hinglish">Hinglish</option>
+        <option value="english">English</option>
+        <option value="hindi">Hindi</option>
+        <option value="marathi">Marathi</option>
+        <option value="gujarati">Gujarati</option>
+        <option value="tamil">Tamil</option>
+        <option value="__custom">Other…</option>
+      </select>
+      <input id="language-custom" class="field mt-2 hidden" placeholder="e.g. Bengali">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Engine</span>
+      <select id="engine" class="field mt-1.5">
+        <option value="openrouter">OpenRouter — free</option>
+        <option value="claude_code">Claude Code — Max plan</option>
+      </select>
+      <span class="block text-xs text-muted mt-1.5" id="engine-detail">…</span>
+    </label>
+  </div>
+
+  <label class="block mt-3 hidden" id="claude-model-wrap">
+    <span class="text-xs font-medium text-muted">Claude model</span>
+    <select id="claude-model" class="field mt-1.5">
+      <option value="sonnet">Sonnet — balanced</option>
+      <option value="opus">Opus — best quality</option>
+      <option value="haiku">Haiku — fastest</option>
+    </select>
+  </label>
+
+  <div class="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4">
+    <label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" id="use-research" checked
+             class="h-4 w-4 rounded border-line text-accent focus:ring-accent/30">
+      <span>Use live web research</span>
+    </label>
+    <label class="flex items-center gap-2 text-sm">
+      <input type="checkbox" id="send-cover" checked
+             class="h-4 w-4 rounded border-line text-accent focus:ring-accent/30">
+      <span>Preview image with files</span>
+    </label>
+  </div>
+
+  <div class="flex items-center gap-3 mt-5">
+    <button id="btn-generate"
+            class="press bg-accent text-white text-sm font-medium rounded-xl px-6 py-2.5
+                   hover:bg-accent/90 disabled:opacity-40">
+      Generate
+    </button>
+    <span id="gen-status" class="text-sm text-muted"></span>
+  </div>
+
+  <div id="progress-wrap" class="hidden mt-5 rounded-xl border border-line bg-wash p-4">
+    <div class="flex items-center justify-between gap-3">
+      <span class="text-sm font-medium" id="progress-label">Starting…</span>
+      <span class="text-sm tabular-nums text-muted">
+        <span id="progress-pct">0</span>% · <span id="progress-time">0s</span>
+      </span>
+    </div>
+    <div class="mt-2.5 h-2 rounded-full bg-white border border-line overflow-hidden">
+      <div id="progress-bar" class="h-full bg-accent origin-left"
+           style="width:100%;transform:scaleX(0);transition:transform .5s cubic-bezier(.22,.61,.36,1)"></div>
+    </div>
+    <div class="flex items-center gap-4 mt-3" id="progress-steps"></div>
+    <p class="text-xs text-muted mt-2" id="progress-detail"></p>
+  </div>
+</section>
+
+<!-- ── 3 · Final draft ────────────────────────────────────────────────── -->
+<section id="preview-section" class="hidden rounded-2xl border border-line overflow-hidden mb-4">
+  <div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-line">
+    <h2 class="font-semibold flex items-center gap-2.5">
+      <span class="h-6 w-6 rounded-full bg-accent/10 text-accent grid place-items-center text-xs font-semibold">3</span>
+      Final draft — exactly as it will arrive
+    </h2>
+    <span class="text-xs text-muted" id="preview-meta"></span>
+  </div>
+
+  <div id="drive-note" class="hidden px-6 py-3 bg-amber-50 border-b border-amber-200 text-sm text-amber-800"></div>
+
+  <!-- one card per audience: group and/or channel -->
+  <div id="variants" class="divide-y divide-line"></div>
+
+  <div class="px-6 py-4 border-t border-line bg-wash flex flex-wrap items-center gap-2">
+    <button id="btn-approve"
+            class="press bg-ok text-white text-sm font-medium rounded-xl px-5 py-2.5 hover:opacity-90">
+      Approve &amp; send now
+    </button>
+    <button id="btn-schedule-jump"
+            class="press text-sm font-medium border border-line bg-white rounded-xl px-5 py-2.5 hover:bg-wash">
+      Schedule instead
+    </button>
+    <button id="btn-regenerate"
+            class="press text-sm font-medium border border-line bg-white rounded-xl px-5 py-2.5 hover:bg-wash">
+      Regenerate
+    </button>
+    <button id="btn-reject"
+            class="press text-sm font-medium text-danger border border-danger/20 bg-white rounded-xl px-5 py-2.5 hover:bg-danger/5">
+      Reject
+    </button>
+    <a id="btn-download" class="hidden press text-sm font-medium text-accent hover:underline ml-auto"
+       href="#" download>Download file</a>
+  </div>
+</section>
+
+<!-- ── 4 · When ───────────────────────────────────────────────────────── -->
+<section id="timing-section" class="hidden rounded-2xl border border-line p-6 mb-4">
+  <h2 class="font-semibold flex items-center gap-2.5">
+    <span class="h-6 w-6 rounded-full bg-accent/10 text-accent grid place-items-center text-xs font-semibold">4</span>
+    When should it go out?
+  </h2>
+
+  <div class="grid grid-cols-2 gap-4 mt-4">
+    <label class="block">
+      <span class="text-sm font-medium">Date</span>
+      <input type="date" id="s-date" class="field mt-1.5">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Time ({{ timezone }})</span>
+      <input type="time" id="s-time" class="field mt-1.5" value="09:00" step="300">
+    </label>
+  </div>
+
+  <div class="mt-5">
+    <span class="text-sm font-medium">Repeat</span>
+    <div class="flex flex-wrap gap-2 mt-2" id="repeat-choices">
+      {% for value, label in [('once','Just once'), ('daily','Every day'),
+                              ('alternate','Alternate days'), ('weekly','Every week'),
+                              ('weekdays','Mon–Fri'), ('custom','Custom…')] %}
+        <button data-repeat="{{ value }}"
+                class="rep-btn chip text-sm border border-line rounded-xl px-4 py-2 hover:bg-wash">
+          {{ label }}
+        </button>
+      {% endfor %}
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mt-3">
+      <label class="block hidden" id="weekday-wrap">
+        <span class="text-xs font-medium text-muted">Day of week</span>
+        <select id="s-weekday" class="field mt-1.5">
+          {% for i, d in [(0,'Monday'),(1,'Tuesday'),(2,'Wednesday'),(3,'Thursday'),
+                          (4,'Friday'),(5,'Saturday'),(6,'Sunday')] %}
+            <option value="{{ i }}">{{ d }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="block hidden" id="interval-wrap">
+        <span class="text-xs font-medium text-muted">Every how many days?</span>
+        <input type="number" id="s-interval" class="field mt-1.5" value="3" min="1" max="90">
+      </label>
+    </div>
+  </div>
+
+  <p id="sched-preview" class="text-sm text-muted mt-4"></p>
+
+  <div class="flex items-center gap-3 mt-4">
+    <button id="btn-schedule"
+            class="press bg-accent text-white text-sm font-medium rounded-xl px-6 py-2.5 hover:bg-accent/90">
+      Schedule it
+    </button>
+    <button id="btn-cancel-schedule"
+            class="press text-sm font-medium border border-line rounded-xl px-5 py-2.5 hover:bg-wash">
+      Cancel
+    </button>
+  </div>
+</section>
+
+<!-- ── Upcoming + recent ──────────────────────────────────────────────── -->
+<section class="step rounded-2xl border border-line overflow-hidden">
+  <div class="flex items-center justify-between px-6 py-4 border-b border-line">
+    <h2 class="font-semibold">Queued &amp; recent</h2>
+    <a href="/" class="text-sm text-accent hover:underline">Overview →</a>
+  </div>
+  <div id="queue-list"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const EXAMPLES = [
+  '10 free AI tools for founders, with pricing',
+  'This week in the markets — what moved and why',
+  'Beginner SIP checklist with fund comparison',
+  'Top 20 AI prompts for marketers, as a sheet',
+];
+
+const state = {
+  deviceId: null,
+  kind: 'groups',
+  chats: { groups: [], channels: [] },
+  picked: new Map(),
+  campaignId: null,
+  repeat: 'once',
+  result: null,
+  variants: {},        // 'group' | 'channel' -> {draftIds, content}
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* ── devices ────────────────────────────────────────────────────────────── */
+
+async function loadDevices() {
+  const host = $('device-chips');
+  try {
+    const devices = await api.get('/api/devices');
+    if (!devices.length) {
+      host.innerHTML = `<a href="/devices" class="text-sm text-accent hover:underline">Link a WhatsApp account first →</a>`;
+      return;
+    }
+    if (!state.deviceId) {
+      const pref = new URLSearchParams(location.search).get('device');
+      state.deviceId = (devices.find((d) => String(d.id) === pref)
+                     || devices.find((d) => d.ok) || devices[0]).id;
+    }
+    host.innerHTML = devices.map((d) => `
+      <button data-device="${d.id}"
+              class="chip flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm
+              ${d.id === state.deviceId ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
+        <span class="h-1.5 w-1.5 rounded-full ${d.ok ? 'bg-ok' : 'bg-amber-400'}"></span>
+        <span>${escapeHtml(d.name)}</span>
+      </button>`).join('');
+
+    host.querySelectorAll('[data-device]').forEach((b) =>
+      b.addEventListener('click', () => {
+        if (Number(b.dataset.device) === state.deviceId) return;
+        state.deviceId = Number(b.dataset.device);
+        loadDevices(); loadChats();
+      }));
+    loadChats();
+  } catch (err) {
+    host.innerHTML = `<span class="text-sm text-danger">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+/* ── chats ──────────────────────────────────────────────────────────────── */
+
+async function loadChats(force) {
+  const host = $('chat-list');
+  host.innerHTML = '<div class="px-4 py-8 text-center text-sm text-muted">Loading your chats…</div>';
+  try {
+    const data = await api.get(`/api/waha/chats?device_id=${state.deviceId}`);
+    state.chats = { groups: data.groups || [], channels: data.channels || [] };
+    if (data.errors?.length) showBanner(data.errors.join(' · '));
+    renderChats();
+  } catch (err) {
+    host.innerHTML = `<div class="px-4 py-6 text-sm">
+      <div class="text-danger font-medium">Could not load chats</div>
+      <div class="text-muted mt-1">${escapeHtml(err.message)}</div></div>`;
+  }
+}
+
+function renderChats() {
+  const host = $('chat-list');
+  const items = state.chats[state.kind] || [];
+  const q = $('chat-search').value.trim().toLowerCase();
+  const shown = q ? items.filter((i) => i.name.toLowerCase().includes(q)) : items;
+
+  const ann = items.filter((i) => i.is_announce).length;
+  $('chat-hint').textContent = items.length
+    ? (state.kind === 'groups'
+        ? `${items.length} groups · ${ann} announcement group${ann === 1 ? '' : 's'} first`
+        : `${items.length} channel${items.length === 1 ? '' : 's'}`)
+    : '';
+
+  if (!shown.length) {
+    host.innerHTML = `<div class="px-4 py-8 text-center text-sm text-muted">
+      ${items.length ? 'Nothing matches that filter.' : 'None found on this account.'}</div>`;
+    return;
+  }
+
+  host.innerHTML = shown.map((i) => `
+    <label class="row flex items-center gap-3 px-4 py-2.5 hover:bg-wash cursor-pointer">
+      <input type="checkbox" data-chat="${escapeHtml(i.id)}" ${state.picked.has(i.id) ? 'checked' : ''}
+             class="h-4 w-4 rounded border-line text-accent focus:ring-accent/30 shrink-0">
+      <span class="min-w-0 flex-1">
+        <span class="flex items-center gap-1.5">
+          <span class="text-sm truncate">${escapeHtml(i.name)}</span>
+          ${i.is_announce ? '<span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">announcements</span>' : ''}
+        </span>
+      </span>
+      ${i.participants ? `<span class="text-xs text-muted shrink-0">${i.participants.toLocaleString()}</span>` : ''}
+    </label>`).join('');
+
+  host.querySelectorAll('[data-chat]').forEach((box) =>
+    box.addEventListener('change', () => {
+      const chat = items.find((i) => i.id === box.dataset.chat);
+      if (box.checked) {
+        state.picked.set(chat.id, {
+          chat_id: chat.id, name: chat.name,
+          type: state.kind === 'groups' ? 'group' : 'channel',
+          device_id: state.deviceId,
+        });
+      } else state.picked.delete(box.dataset.chat);
+      renderPicked();
+    }));
+}
+
+function renderPicked() {
+  const count = state.picked.size;
+  $('pick-count').textContent = `${count} selected`;
+  const summary = $('picked-summary');
+  if (!count) { summary.classList.add('hidden'); return; }
+  summary.classList.remove('hidden');
+  summary.innerHTML = [...state.picked.values()].map((c) => `
+    <span class="reveal inline-flex items-center gap-1.5 text-xs bg-accent/10 text-accent
+                 border border-accent/20 rounded-full px-2.5 py-1">
+      ${c.type === 'channel' ? '📣' : '👥'} ${escapeHtml(c.name)}
+      <button data-unpick="${escapeHtml(c.chat_id)}" class="hover:opacity-60">✕</button>
+    </span>`).join('');
+  summary.querySelectorAll('[data-unpick]').forEach((b) =>
+    b.addEventListener('click', () => {
+      state.picked.delete(b.dataset.unpick); renderChats(); renderPicked();
+    }));
+}
+
+document.querySelectorAll('.kind-btn').forEach((btn) =>
+  btn.addEventListener('click', () => {
+    state.kind = btn.dataset.kind;
+    document.querySelectorAll('.kind-btn').forEach((b) => {
+      const on = b === btn;
+      b.className = `kind-btn chip px-4 py-1.5 rounded-lg text-sm font-medium ${on ? 'bg-white shadow-sm' : 'text-muted'}`;
+    });
+    renderChats();
+  }));
+
+$('chat-search').addEventListener('input', renderChats);
+$('btn-clear-picks').addEventListener('click', () => {
+  state.picked.clear(); renderChats(); renderPicked();
+});
+$('btn-reload').addEventListener('click', () => loadChats(true));
+
+/* ── brief ──────────────────────────────────────────────────────────────── */
+
+$('brief-examples').innerHTML = EXAMPLES.map((e) =>
+  `<button class="ex-btn chip text-xs border border-line rounded-full px-3 py-1.5 hover:bg-wash text-muted hover:text-ink">${escapeHtml(e)}</button>`
+).join('');
+document.querySelectorAll('.ex-btn').forEach((b) =>
+  b.addEventListener('click', () => { $('brief').value = b.textContent.trim(); $('brief').focus(); }));
+
+$('language').addEventListener('change', (e) =>
+  $('language-custom').classList.toggle('hidden', e.target.value !== '__custom'));
+
+$('engine').addEventListener('change', () => {
+  $('claude-model-wrap').classList.toggle('hidden', $('engine').value !== 'claude_code');
+  paintEngineDetail();
+});
+
+let engineInfo = {};
+function paintEngineDetail() {
+  const meta = engineInfo[$('engine').value];
+  if (!meta) return;
+  const el = $('engine-detail');
+  el.textContent = $('engine').value === 'openrouter' && meta.available
+    ? `${meta.detail} · ${meta.calls_today}/50 today` : meta.detail;
+  el.className = `block text-xs mt-1.5 ${meta.available ? 'text-muted' : 'text-danger'}`;
+}
+
+async function loadEngines() {
+  try {
+    engineInfo = await api.get('/api/campaigns/engines');
+    paintEngineDetail();
+  } catch (_) {}
+}
+
+const chosenLanguage = () => $('language').value === '__custom'
+  ? ($('language-custom').value.trim() || 'english') : $('language').value;
+
+/* ── generate ───────────────────────────────────────────────────────────── */
+
+const STEPS = [['research','Research'],['drafting','Write'],['building','Build'],['saving','Finish']];
+
+function renderSteps(current) {
+  const at = STEPS.map((s) => s[0]).indexOf(current);
+  $('progress-steps').innerHTML = STEPS.map(([key, label], i) => {
+    const done = at > i || current === 'done';
+    const active = at === i;
+    return `<span class="text-xs ${done ? 'text-ok' : active ? 'text-accent font-medium' : 'text-muted'}">
+      ${done ? '✓' : active ? '●' : '○'} ${label}</span>`;
+  }).join('');
+}
+
+function paintProgress(job) {
+  // scaleX instead of width: composited, no layout per frame.
+  $('progress-bar').style.transform = `scaleX(${job.percent / 100})`;
+  $('progress-pct').textContent = job.percent;
+  $('progress-label').textContent = job.label;
+  $('progress-time').textContent = `${Math.round(job.elapsed)}s`;
+  $('progress-detail').textContent = job.detail || '';
+  renderSteps(job.phase);
+}
+
+async function pollJob(jobId) {
+  for (let i = 0; i < 600; i++) {
+    const job = await api.get(`/api/campaigns/jobs/${jobId}`);
+    paintProgress(job);
+    if (job.status === 'done') return job.result;
+    if (job.status === 'error') throw new Error(job.error || 'Generation failed.');
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  throw new Error('Generation timed out.');
+}
+
+$('btn-generate').addEventListener('click', generate);
+$('btn-regenerate').addEventListener('click', generate);
+
+async function generate() {
+  const brief = $('brief').value.trim();
+  if (!state.picked.size) { showBanner('Pick at least one chat.'); return; }
+  if (!brief) { showBanner('Describe what you want to send.'); return; }
+
+  const btn = $('btn-generate');
+  btn.disabled = true;
+  $('progress-wrap').classList.remove('hidden');
+  $('progress-bar').style.transform = 'scaleX(0)';
+  renderSteps('queued');
+
+  try {
+    const targets = await api.post('/api/targets/ensure', { chats: [...state.picked.values()] });
+    const body = {
+      name: brief.slice(0, 60),
+      brief,
+      language: chosenLanguage(),
+      engine: $('engine').value,
+      output_type: $('output-type').value,
+      model_override: $('engine').value === 'claude_code' ? $('claude-model').value : null,
+      use_research: $('use-research').checked,
+      send_cover_image: $('send-cover').checked,
+      target_ids: targets.map((t) => t.id),
+    };
+    const campaign = state.campaignId
+      ? await api.patch(`/api/campaigns/${state.campaignId}`, body)
+      : await api.post('/api/campaigns', body);
+    state.campaignId = campaign.id;
+
+    const started = await api.post(`/api/campaigns/${campaign.id}/generate`);
+    const result = await pollJob(started.job_id);
+
+    $('progress-bar').style.transform = 'scaleX(1)';
+    setTimeout(() => $('progress-wrap').classList.add('hidden'), 600);
+    await showPreview(result);
+    loadQueue();
+  } catch (err) {
+    $('progress-wrap').classList.add('hidden');
+    showBanner(err.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* ── preview: one card per audience ─────────────────────────────────────── */
+
+async function showPreview(result) {
+  state.result = result;
+  const section = $('preview-section');
+  section.classList.remove('hidden');
+  section.classList.add('reveal');
+  $('preview-meta').textContent =
+    `${result.output_type} · ${result.model_used} · ${result.sources} sources · ${result.targets.length} chat(s)`;
+
+  const note = $('drive-note');
+  if (result.drive_error && result.channel_count) {
+    note.classList.remove('hidden');
+    note.innerHTML = `<strong>No download link.</strong> ${escapeHtml(result.drive_error)}`;
+  } else note.classList.add('hidden');
+
+  // Group drafts by audience so each variant can be reviewed on its own.
+  const drafts = (await api.get('/api/drafts?status=pending&limit=100'))
+    .filter((d) => d.campaign_id === state.campaignId);
+  const typeById = Object.fromEntries(result.targets.map((t) => [t.id, t.type]));
+
+  state.variants = {};
+  drafts.forEach((d) => {
+    const kind = typeById[d.target_id] === 'channel' ? 'channel' : 'group';
+    (state.variants[kind] ||= { draftIds: [], content: d.content, draft: d, names: [] })
+      .draftIds.push(d.id);
+    const t = result.targets.find((x) => x.id === d.target_id);
+    if (t) state.variants[kind].names.push(t.name);
+  });
+
+  $('variants').innerHTML = Object.entries(state.variants).map(([kind, v]) =>
+    variantCard(kind, v, result)).join('');
+  wireVariants();
+
+  const isFile = ['pdf', 'excel'].includes(result.output_type);
+  $('btn-download').classList.toggle('hidden', !isFile);
+  if (isFile) $('btn-download').href = `/api/campaigns/${state.campaignId}/asset`;
+
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function variantCard(kind, v, result) {
+  const d = v.draft;
+  const icon = kind === 'channel' ? '📣' : '👥';
+  const label = kind === 'channel' ? 'Channel post' : 'Group message';
+  const hasFile = !!d.asset_filename;
+  const hasImage = !!d.image_path;
+  const fileIcon = result.output_type === 'excel' ? '📊' : '📄';
+
+  return `
+  <div class="px-6 py-5" data-variant="${kind}">
+    <div class="flex items-center justify-between gap-3 mb-3">
+      <div class="text-sm font-medium">${icon} ${label}
+        <span class="text-muted font-normal">· ${v.draftIds.length} chat(s)</span></div>
+      <div class="text-xs text-muted truncate max-w-[45%]">${escapeHtml(v.names.join(', '))}</div>
+    </div>
+
+    <div class="wa-canvas rounded-xl px-4 py-5">
+      <div class="wa-bubble max-w-md px-3.5 py-2.5">
+        ${hasImage ? `<div class="rounded-lg overflow-hidden border border-line mb-2.5 bg-white">
+            <img src="/api/campaigns/${state.campaignId}/cover" alt="preview"
+                 class="w-full block" loading="lazy"
+                 onerror="this.parentElement.remove()">
+          </div>` : ''}
+        ${hasFile ? `<div class="flex items-center gap-3 rounded-lg bg-wash border border-line px-3 py-2.5 mb-2.5">
+            <span class="text-2xl shrink-0">${fileIcon}</span>
+            <span class="min-w-0">
+              <span class="block text-[13px] font-medium truncate">${escapeHtml(d.asset_filename)}</span>
+              <span class="block text-[11px] text-muted">${result.output_type.toUpperCase()}</span>
+            </span></div>` : ''}
+        <div class="text-[14px] leading-[1.45] whitespace-pre-wrap break-words"
+             data-bubble="${kind}">${escapeHtml(v.content)}</div>
+        ${d.poll_options ? `<div class="mt-3 pt-3 border-t border-line space-y-1.5">
+          ${d.poll_options.map((o) => `<div class="flex items-center gap-2 text-[13px]">
+            <span class="h-3.5 w-3.5 rounded-full border border-line shrink-0"></span>${escapeHtml(o)}</div>`).join('')}
+        </div>` : ''}
+        <div class="text-[11px] text-muted text-right mt-1.5">now</div>
+      </div>
+      <p class="text-[11px] text-muted mt-2.5">${v.content.length} characters</p>
+    </div>
+
+    <button data-edit="${kind}" class="press text-sm text-accent hover:underline mt-2.5">Edit this version</button>
+    <div class="fold" data-fold="${kind}"><div>
+      <textarea class="field mt-2 font-mono text-[13px]" rows="6" data-editor="${kind}">${escapeHtml(v.content)}</textarea>
+      <div class="flex items-center gap-2 mt-2 mb-1">
+        <button data-save="${kind}" class="press text-sm font-medium bg-accent text-white rounded-xl px-4 py-2">Apply</button>
+        <button data-cancel="${kind}" class="press text-sm font-medium border border-line rounded-xl px-4 py-2 hover:bg-wash">Cancel</button>
+      </div>
+    </div></div>
+  </div>`;
+}
+
+function wireVariants() {
+  document.querySelectorAll('[data-edit]').forEach((b) =>
+    b.addEventListener('click', () => {
+      document.querySelector(`[data-fold="${b.dataset.edit}"]`).classList.toggle('open');
+    }));
+  document.querySelectorAll('[data-cancel]').forEach((b) =>
+    b.addEventListener('click', () =>
+      document.querySelector(`[data-fold="${b.dataset.cancel}"]`).classList.remove('open')));
+
+  document.querySelectorAll('[data-save]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const kind = b.dataset.save;
+      const text = document.querySelector(`[data-editor="${kind}"]`).value;
+      b.disabled = true;
+      try {
+        for (const id of state.variants[kind].draftIds) {
+          await api.patch(`/api/drafts/${id}`, { content: text });
+        }
+        state.variants[kind].content = text;
+        document.querySelector(`[data-bubble="${kind}"]`).textContent = text;
+        document.querySelector(`[data-fold="${kind}"]`).classList.remove('open');
+        showBanner('Updated.', 'success');
+      } catch (err) { showBanner(err.message); }
+      finally { b.disabled = false; }
+    }));
+}
+
+/* ── approve / reject ───────────────────────────────────────────────────── */
+
+$('btn-approve').addEventListener('click', async (e) => {
+  if (!confirm(`Send to ${state.picked.size} chat(s) now?`)) return;
+  e.target.disabled = true; e.target.textContent = 'Sending…';
+  try {
+    const res = await api.post(`/api/campaigns/${state.campaignId}/send`);
+    if (res.failed) showBanner(`Sent ${res.sent}, failed ${res.failed}: ${res.errors.join(' · ')}`);
+    else {
+      showBanner(`Sent to ${res.sent} chat(s).`, 'success');
+      resetAfterSend();
+    }
+    loadQueue();
+  } catch (err) { showBanner(err.message); }
+  finally { e.target.disabled = false; e.target.textContent = 'Approve & send now'; }
+});
+
+$('btn-reject').addEventListener('click', async () => {
+  if (!confirm('Discard this draft?')) return;
+  try {
+    const ids = Object.values(state.variants).flatMap((v) => v.draftIds);
+    for (const id of ids) await api.post(`/api/drafts/${id}/reject`);
+    resetAfterSend();
+    showBanner('Draft discarded.', 'info');
+    loadQueue();
+  } catch (err) { showBanner(err.message); }
+});
+
+function resetAfterSend() {
+  $('preview-section').classList.add('hidden');
+  $('timing-section').classList.add('hidden');
+  state.campaignId = null;
+  state.variants = {};
+}
+
+/* ── scheduling ─────────────────────────────────────────────────────────── */
+
+$('btn-schedule-jump').addEventListener('click', () => {
+  const t = $('timing-section');
+  t.classList.remove('hidden');
+  t.classList.add('reveal');
+  if (!$('s-date').value) {
+    const now = new Date();
+    $('s-date').value = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+      .toISOString().slice(0, 10);
+  }
+  t.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+$('btn-cancel-schedule').addEventListener('click', () => $('timing-section').classList.add('hidden'));
+
+function setRepeat(value) {
+  state.repeat = value;
+  document.querySelectorAll('.rep-btn').forEach((b) => {
+    const on = b.dataset.repeat === value;
+    b.className = `rep-btn chip text-sm border rounded-xl px-4 py-2 ${
+      on ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}`;
+  });
+  $('weekday-wrap').classList.toggle('hidden', value !== 'weekly');
+  $('interval-wrap').classList.toggle('hidden', value !== 'custom');
+  paintSchedulePreview();
+}
+
+document.querySelectorAll('.rep-btn').forEach((b) =>
+  b.addEventListener('click', () => setRepeat(b.dataset.repeat)));
+
+['s-date', 's-time', 's-weekday', 's-interval'].forEach((id) =>
+  $(id).addEventListener('input', paintSchedulePreview));
+
+function paintSchedulePreview() {
+  const time = $('s-time').value || '09:00';
+  const [h, m] = time.split(':').map(Number);
+  // hour12 forced: the rest of the app renders IST times as 9:30 AM, and the
+  // browser locale would otherwise flip this one label to 24-hour.
+  const clock = new Date(2000, 0, 1, h, m)
+    .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const date = $('s-date').value
+    ? new Date($('s-date').value + 'T00:00').toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' })
+    : 'the next occurrence';
+
+  const text = {
+    once:      `Once on ${date} at ${clock}`,
+    daily:     `Every day at ${clock}, starting ${date}`,
+    alternate: `Every other day at ${clock}, starting ${date}`,
+    weekly:    `Every ${days[$('s-weekday').value]} at ${clock}`,
+    weekdays:  `Monday to Friday at ${clock}`,
+    custom:    `Every ${$('s-interval').value} days at ${clock}, starting ${date}`,
+  }[state.repeat];
+  $('sched-preview').innerHTML = `<span class="text-ink font-medium">${escapeHtml(text)}</span> · {{ timezone }}`;
+}
+
+$('btn-schedule').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  try {
+    await api.post('/api/schedules/plan', {
+      campaign_id: state.campaignId,
+      repeat: state.repeat,
+      date: $('s-date').value || null,
+      time: $('s-time').value || '09:00',
+      weekday: Number($('s-weekday').value),
+      interval_days: Number($('s-interval').value) || 2,
+    });
+    showBanner('Scheduled.', 'success');
+    $('timing-section').classList.add('hidden');
+    loadQueue();
+  } catch (err) { showBanner(err.message); }
+  finally { e.target.disabled = false; }
+});
+
+/* ── queued & recent ────────────────────────────────────────────────────── */
+
+async function loadQueue() {
+  const host = $('queue-list');
+  try {
+    const [upcoming, campaigns] = await Promise.all([
+      api.get('/api/schedules/upcoming'),
+      api.get('/api/campaigns?limit=6'),
+    ]);
+
+    const rows = [
+      ...upcoming.map((s) => `
+        <div class="row flex items-center justify-between gap-4 px-6 py-3.5 border-b border-line last:border-0">
+          <div class="min-w-0">
+            <div class="text-sm truncate">🕒 ${escapeHtml(s.label)}</div>
+            <div class="text-xs text-muted mt-0.5">${escapeHtml(s.human)} · next ${escapeHtml(s.next_run_label || '—')}</div>
+          </div>
+          <button data-cancel-sched="${s.id}" class="press text-xs text-danger hover:underline shrink-0">Cancel</button>
+        </div>`),
+      ...campaigns.filter((c) => c.sent).map((c) => `
+        <div class="row flex items-center justify-between gap-4 px-6 py-3.5 border-b border-line last:border-0">
+          <div class="min-w-0">
+            <div class="text-sm truncate">${escapeHtml(c.brief)}</div>
+            <div class="text-xs text-muted mt-0.5">${escapeHtml(c.output_type)} · ${c.sent} sent${c.last_run_label ? ' · ' + escapeHtml(c.last_run_label) : ''}</div>
+          </div>
+          <button data-reuse="${c.id}" class="press text-xs text-accent hover:underline shrink-0">Reuse</button>
+        </div>`),
+    ];
+
+    host.innerHTML = rows.length ? rows.join('')
+      : '<p class="px-6 py-8 text-center text-sm text-muted">Nothing queued yet.</p>';
+
+    host.querySelectorAll('[data-cancel-sched]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        try { await api.del(`/api/schedules/${b.dataset.cancelSched}`); loadQueue(); }
+        catch (err) { showBanner(err.message); }
+      }));
+    host.querySelectorAll('[data-reuse]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const c = await api.get(`/api/campaigns/${b.dataset.reuse}`);
+        $('brief').value = c.brief;
+        $('output-type').value = c.output_type;
+        $('engine').value = c.engine;
+        $('engine').dispatchEvent(new Event('change'));
+        state.campaignId = null;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }));
+  } catch (err) { host.innerHTML = ''; }
+}
+
+setRepeat('once');
+loadDevices();
+loadEngines();
+loadQueue();
+</script>
+{% endblock %}

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- HC-4: light theme only. This stops browsers auto-darkening form controls. -->
+  <meta name="color-scheme" content="light">
+  <title>{% block title %}{{ app_title }}{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class', // never toggled - HC-4 forbids dark mode
+      theme: {
+        extend: {
+          colors: {
+            ink:    '#111827',
+            muted:  '#6B7280',
+            line:   '#E5E7EB',
+            accent: '#4F46E5',
+            ok:     '#16A34A',
+            danger: '#DC2626',
+            wash:   '#F9FAFB',
+          },
+          fontFamily: {
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI',
+                   'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+          },
+          borderRadius: { xl: '0.75rem', '2xl': '1rem' },
+        }
+      }
+    }
+  </script>
+  <style>
+    html { color-scheme: light; }
+    body { -webkit-font-smoothing: antialiased; }
+    /* Plain CSS, not @apply - the Tailwind Play CDN only expands @apply inside
+       <style type="text/tailwindcss">, and this needs to work either way. */
+    .field {
+      width: 100%;
+      border: 1px solid #E5E7EB;
+      border-radius: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.875rem;
+      line-height: 1.35rem;
+      color: #111827;
+      background: #FFFFFF;
+    }
+    .field::placeholder { color: #6B7280; }
+    .field:focus {
+      outline: none;
+      border-color: #4F46E5;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18);
+    }
+    textarea.field { resize: vertical; min-height: 5rem; }
+    ::selection { background: #4F46E5; color: #fff; }
+    /* WhatsApp-ish preview bubble */
+    .wa-bubble {
+      background: #FFFFFF;
+      border: 1px solid #E5E7EB;
+      border-radius: 12px 12px 12px 4px;
+      box-shadow: 0 1px 2px rgba(17,24,39,.06);
+    }
+    .wa-canvas { background: #F4F1EC; }
+    [x-cloak] { display: none; }
+
+    /* ── Motion ───────────────────────────────────────────────────────────
+       Everything animates transform/opacity only. Those are composited on the
+       GPU, so no layout or paint happens per frame and the browser can hold
+       60fps. Never animate height/top/width here. */
+    :root {
+      --ease: cubic-bezier(.22,.61,.36,1);
+      --fast: 160ms;
+      --base: 260ms;
+    }
+
+    .step {
+      opacity: 0;
+      transform: translate3d(0, 10px, 0);
+      animation: rise var(--base) var(--ease) forwards;
+    }
+    .step:nth-child(2) { animation-delay: 40ms; }
+    .step:nth-child(3) { animation-delay: 80ms; }
+    .step:nth-child(4) { animation-delay: 120ms; }
+    .step:nth-child(5) { animation-delay: 160ms; }
+
+    @keyframes rise {
+      to { opacity: 1; transform: translate3d(0, 0, 0); }
+    }
+
+    .reveal {
+      animation: rise var(--base) var(--ease) forwards;
+      will-change: transform, opacity;
+    }
+
+    /* Interactive lift, GPU-composited */
+    .lift { transition: transform var(--fast) var(--ease),
+                        box-shadow var(--fast) var(--ease),
+                        border-color var(--fast) var(--ease); }
+    .lift:hover { transform: translate3d(0,-1px,0); }
+    .lift:active { transform: translate3d(0,0,0); }
+
+    .press { transition: transform var(--fast) var(--ease), opacity var(--fast) var(--ease); }
+    .press:active:not(:disabled) { transform: scale(.97); }
+
+    .chip { transition: transform var(--fast) var(--ease),
+                        background-color var(--fast) var(--ease),
+                        border-color var(--fast) var(--ease); }
+    .chip:active { transform: scale(.96); }
+
+    /* Rows in a long list: fade only, no transform, so scrolling stays cheap */
+    .row { transition: background-color var(--fast) var(--ease); }
+
+    /* Collapsible without animating height: scale the wrapper instead */
+    .fold { display: grid; grid-template-rows: 0fr;
+            transition: grid-template-rows var(--base) var(--ease); }
+    .fold > * { overflow: hidden; }
+    .fold.open { grid-template-rows: 1fr; }
+
+    .spin { animation: spin 900ms linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Custom scrollbars - thin, unobtrusive, no layout shift */
+    .scroll-slim { scrollbar-width: thin; scrollbar-color: #D1D5DB transparent; }
+    .scroll-slim::-webkit-scrollbar { width: 8px; height: 8px; }
+    .scroll-slim::-webkit-scrollbar-thumb {
+      background: #D1D5DB; border-radius: 8px; border: 2px solid #fff;
+    }
+    .scroll-slim::-webkit-scrollbar-track { background: transparent; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 1ms !important;
+        animation-delay: 0ms !important;
+        transition-duration: 1ms !important;
+      }
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="bg-white text-ink font-sans">
+
+<div class="flex min-h-screen">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+  <aside class="w-64 shrink-0 border-r border-line bg-white flex flex-col">
+    <div class="px-5 py-5 border-b border-line">
+      <a href="/" class="block">
+        <div class="text-[15px] font-semibold tracking-tight">WhatsApp Manager</div>
+        <div class="text-xs text-muted mt-0.5">Local · {{ timezone }}</div>
+      </a>
+    </div>
+
+    <nav class="px-3 py-3 space-y-0.5">
+      {% set nav_active = 'bg-accent/10 text-accent font-medium' %}
+      {% set nav_idle = 'text-ink hover:bg-wash' %}
+
+      <a href="/compose" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
+         {{ nav_active if active_page == 'compose' else nav_idle }}">
+        <span class="text-base leading-none">✍️</span><span>Compose</span>
+      </a>
+      <a href="/autopilot" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
+         {{ nav_active if active_page == 'autopilot' else nav_idle }}">
+        <span class="text-base leading-none">🧠</span><span>Autopilot</span>
+      </a>
+      <a href="/" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
+         {{ nav_active if active_page == 'dashboard' else nav_idle }}">
+        <span class="text-base leading-none">📊</span><span>Overview</span>
+      </a>
+      <a href="/assets" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
+         {{ nav_active if active_page == 'assets' else nav_idle }}">
+        <span class="text-base leading-none">📎</span><span>Files</span>
+      </a>
+      <a href="/devices" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
+         {{ nav_active if active_page == 'devices' else nav_idle }}">
+        <span class="text-base leading-none">📱</span><span>Devices</span>
+      </a>
+      <a href="/settings" class="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
+         {{ nav_active if active_page == 'settings' else nav_idle }}">
+        <span class="text-base leading-none">⚙️</span><span>Settings</span>
+      </a>
+    </nav>
+
+    <div class="px-5 pt-4 pb-2">
+      <div class="text-[11px] font-semibold text-muted uppercase tracking-wider">
+        Saved targets
+      </div>
+    </div>
+
+    <div class="px-3 flex-1 overflow-y-auto space-y-0.5">
+      {% for t in sidebar_targets %}
+        <a href="/targets/{{ t.id }}"
+           class="block px-3 py-2 rounded-xl
+           {{ 'bg-accent/10' if active_target_id == t.id else 'hover:bg-wash' }}">
+          <div class="flex items-center gap-2">
+            <span class="h-1.5 w-1.5 rounded-full shrink-0
+                  {{ 'bg-ok' if t.enabled else 'bg-line' }}"></span>
+            <span class="text-sm truncate
+                  {{ 'text-accent font-medium' if active_target_id == t.id else 'text-ink' }}">
+              {{ t.name }}
+            </span>
+          </div>
+          <div class="pl-3.5 flex items-center gap-1.5 mt-0.5">
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-wash text-muted border border-line">
+              {{ t.niche or t.type.value }}
+            </span>
+            {% if t.type.value == 'channel' %}
+              <span class="text-[10px] text-muted">channel</span>
+            {% endif %}
+          </div>
+        </a>
+      {% else %}
+        <p class="px-3 py-2 text-xs text-muted leading-relaxed">
+          No targets yet. Add your first community or channel below.
+        </p>
+      {% endfor %}
+    </div>
+
+    <div class="p-3 border-t border-line">
+      <a href="/targets/new"
+         class="block text-center w-full bg-accent text-white text-sm font-medium
+                rounded-xl px-3 py-2.5 hover:bg-accent/90 transition">
+        + Add community/channel
+      </a>
+      <div class="mt-3 flex items-center gap-2 px-1">
+        <span id="waha-dot" class="h-2 w-2 rounded-full bg-line"></span>
+        <span id="waha-label" class="text-[11px] text-muted">WAHA: checking…</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ────────────────────────────────────────────────────────── -->
+  <main class="flex-1 min-w-0 bg-white">
+    <div id="global-banner" class="hidden"></div>
+    <div class="max-w-5xl mx-auto px-8 py-8">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+
+<script src="/static/app.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

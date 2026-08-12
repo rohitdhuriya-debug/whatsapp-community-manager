@@ -1,0 +1,588 @@
+{% extends "base.html" %}
+{% block title %}Settings · {{ app_title }}{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
+  <p class="text-sm text-muted mt-1">Connections, model, and free-tier usage.</p>
+</div>
+
+<!-- ── WhatsApp bridge ─────────────────────────────────────────────────── -->
+<section class="rounded-2xl border border-line p-6 mb-5">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h2 class="font-semibold">WhatsApp bridge (WAHA)</h2>
+      <p class="text-sm text-muted mt-1">
+        Runs locally in Docker on <code class="bg-wash border border-line rounded px-1.5 py-0.5 text-[13px]">127.0.0.1:3000</code>,
+        never exposed to the network.
+      </p>
+    </div>
+    <span id="waha-badge"
+          class="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border border-line bg-wash text-muted">
+      checking…
+    </span>
+  </div>
+
+  <div id="waha-detail" class="mt-4 text-sm"></div>
+
+  <dl class="grid grid-cols-2 gap-4 mt-5 pt-5 border-t border-line text-sm">
+    <div>
+      <dt class="text-xs text-muted">Session name</dt>
+      <dd class="mt-0.5 font-mono text-[13px]" id="waha-session">—</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-muted">Endpoint</dt>
+      <dd class="mt-0.5 font-mono text-[13px]" id="waha-url">—</dd>
+    </div>
+  </dl>
+
+  <div class="mt-5 flex flex-wrap items-center gap-3">
+    <a href="http://localhost:3000/dashboard" target="_blank" rel="noopener"
+       class="text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash transition">
+      Open WAHA dashboard (QR)
+    </a>
+    <button id="btn-start-session"
+            class="text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash transition">
+      Start session
+    </button>
+    <button id="btn-refresh-waha"
+            class="text-sm font-medium text-accent hover:underline">
+      Refresh
+    </button>
+  </div>
+</section>
+
+<!-- ── Model ───────────────────────────────────────────────────────────── -->
+<section class="rounded-2xl border border-line p-6 mb-5">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h2 class="font-semibold">Drafting model (OpenRouter)</h2>
+      <p class="text-sm text-muted mt-1">
+        Only models ending in <code class="bg-wash border border-line rounded px-1.5 py-0.5 text-[13px]">:free</code>
+        are listed, and the app refuses to call anything else.
+      </p>
+    </div>
+    <span id="key-badge"
+          class="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border border-line bg-wash text-muted">
+      checking…
+    </span>
+  </div>
+
+  <div class="mt-5 pt-5 border-t border-line">
+    <div class="flex items-baseline justify-between gap-3">
+      <span class="text-sm font-medium">API key</span>
+      <span class="text-xs text-muted" id="key-source"></span>
+    </div>
+    <p class="text-xs text-muted mt-0.5">
+      Get a free one at
+      <a href="https://openrouter.ai/keys" target="_blank" rel="noopener"
+         class="text-accent hover:underline">openrouter.ai/keys</a>.
+      Stored locally in <code class="bg-wash border border-line rounded px-1 py-0.5">app.db</code>, never sent anywhere but OpenRouter.
+    </p>
+
+    <div class="flex items-center gap-2 mt-2.5">
+      <input id="key-input" type="password" class="field font-mono text-[13px]"
+             placeholder="sk-or-v1-…" autocomplete="off" spellcheck="false">
+      <button id="btn-key-show" type="button"
+              class="shrink-0 text-xs font-medium border border-line rounded-xl px-3 py-2.5 hover:bg-wash">
+        Show
+      </button>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-2 mt-3">
+      <button id="btn-key-save"
+              class="text-sm font-medium bg-accent text-white rounded-xl px-4 py-2.5 hover:bg-accent/90 transition">
+        Save key
+      </button>
+      <button id="btn-key-test"
+              class="text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash transition">
+        Test key
+      </button>
+      <button id="btn-key-clear"
+              class="text-sm font-medium text-danger hover:underline px-2">
+        Remove
+      </button>
+    </div>
+    <div id="key-result" class="mt-3"></div>
+  </div>
+
+  <label class="block mt-5 pt-5 border-t border-line">
+    <span class="text-sm font-medium">Default model</span>
+    <select id="model-select" class="field mt-1.5">
+      <option>Loading free models…</option>
+    </select>
+    <span class="block text-xs text-muted mt-1.5" id="model-count"></span>
+  </label>
+
+  <div class="mt-4 flex items-center gap-3">
+    <button id="btn-save-model"
+            class="text-sm font-medium bg-accent text-white rounded-xl px-4 py-2.5 hover:bg-accent/90 transition">
+      Save default model
+    </button>
+    <span id="model-saved" class="text-sm text-ok hidden">Saved</span>
+  </div>
+</section>
+
+<!-- ── Free-tier usage ─────────────────────────────────────────────────── -->
+<section class="rounded-2xl border border-line p-6 mb-5">
+  <h2 class="font-semibold">Free-tier usage today</h2>
+  <p class="text-sm text-muted mt-1">
+    Research (DuckDuckGo + Google News RSS) is keyless and unlimited, so
+    <strong class="text-ink font-medium">each message costs exactly one model call</strong>.
+  </p>
+
+  <div class="mt-5">
+    <div class="flex items-baseline justify-between">
+      <span class="text-sm">Model calls</span>
+      <span class="text-sm"><span id="calls-today" class="font-semibold">—</span>
+        <span class="text-muted">/ <span id="calls-limit">50</span></span></span>
+    </div>
+    <div class="mt-2 h-2 rounded-full bg-wash border border-line overflow-hidden">
+      <div id="calls-bar" class="h-full bg-accent transition-all" style="width:0%"></div>
+    </div>
+    <p id="calls-warning" class="text-xs text-muted mt-2">
+      OpenRouter allows roughly 50 free requests per day on a ₹0 account. Plan your schedules accordingly.
+    </p>
+  </div>
+</section>
+
+<!-- ── Google Drive ────────────────────────────────────────────────────── -->
+<section class="rounded-2xl border border-line p-6 mb-5">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h2 class="font-semibold">Google Drive</h2>
+      <p class="text-sm text-muted mt-1">
+        Channels don't render file attachments, so channel posts send a preview image plus a
+        link. Drive is where that link points. Groups still get the file attached directly.
+      </p>
+    </div>
+    <span id="drive-badge"
+          class="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border border-line bg-wash text-muted">
+      checking…
+    </span>
+  </div>
+
+  <div id="drive-detail" class="mt-4 text-sm"></div>
+
+  <div class="mt-5">
+    <span class="text-sm font-medium">How to reach Drive</span>
+    <div class="grid grid-cols-2 gap-3 mt-2">
+      <label class="prov-card cursor-pointer rounded-xl border border-line p-4 hover:border-accent/40">
+        <span class="flex items-center gap-2">
+          <input type="radio" name="drive-provider" value="mcp"
+                 class="h-4 w-4 text-accent focus:ring-accent/30">
+          <span class="text-sm font-medium">Claude connector (MCP)</span>
+        </span>
+        <span class="block text-xs text-muted mt-1.5 pl-6" id="prov-mcp-detail">…</span>
+        <span class="block text-xs text-muted mt-1 pl-6">
+          Nothing to set up — but only carries files under ~16 KB, because the file
+          travels as base64 inside a tool call. Too small for most PDFs.
+        </span>
+      </label>
+      <label class="prov-card cursor-pointer rounded-xl border border-line p-4 hover:border-accent/40">
+        <span class="flex items-center gap-2">
+          <input type="radio" name="drive-provider" value="api"
+                 class="h-4 w-4 text-accent focus:ring-accent/30">
+          <span class="text-sm font-medium">Own Google client (API)</span>
+        </span>
+        <span class="block text-xs text-muted mt-1.5 pl-6" id="prov-api-detail">…</span>
+        <span class="block text-xs text-muted mt-1 pl-6">
+          One-time setup below. Then instant, free, any file size.
+        </span>
+      </label>
+    </div>
+    <label class="flex items-center gap-2 mt-2.5 text-sm text-muted">
+      <input type="radio" name="drive-provider" value="off"
+             class="h-4 w-4 text-accent focus:ring-accent/30">
+      Don't upload — channel posts get the image and caption only
+    </label>
+  </div>
+
+  <details id="drive-setup" class="mt-4">
+    <summary class="text-sm text-accent cursor-pointer hover:underline">
+      One-time setup — how to get the credentials
+    </summary>
+    <ol class="mt-3 space-y-2 text-sm text-muted list-decimal pl-5">
+      <li>Open <a href="https://console.cloud.google.com/apis/credentials" target="_blank"
+          rel="noopener" class="text-accent hover:underline">Google Cloud Console → Credentials</a>
+          and create (or pick) a project.</li>
+      <li>Enable the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com"
+          target="_blank" rel="noopener" class="text-accent hover:underline">Google Drive API</a>.</li>
+      <li><strong>Create credentials → OAuth client ID → Web application.</strong></li>
+      <li>Under <em>Authorised redirect URIs</em> add exactly:
+        <code id="drive-redirect" class="block mt-1 bg-wash border border-line rounded px-2 py-1 text-[12px]">…</code>
+      </li>
+      <li>Download the JSON and paste it below.</li>
+    </ol>
+    <p class="text-xs text-muted mt-3">
+      The app requests the <code>drive.file</code> scope only — it can see files it created,
+      never the rest of your Drive.
+    </p>
+  </details>
+
+  <label class="block mt-4">
+    <span class="text-sm font-medium">OAuth client JSON</span>
+    <textarea id="drive-json" class="field mt-1.5 font-mono text-[12px]" rows="3"
+      placeholder='{"web":{"client_id":"...","client_secret":"...", ...}}'></textarea>
+  </label>
+
+  <div class="flex flex-wrap items-center gap-2 mt-3">
+    <button id="btn-drive-save"
+            class="text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash">
+      Save credentials
+    </button>
+    <button id="btn-drive-connect"
+            class="text-sm font-medium bg-accent text-white rounded-xl px-4 py-2.5 hover:bg-accent/90">
+      Connect Google Drive
+    </button>
+    <button id="btn-drive-test"
+            class="text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash">
+      Test
+    </button>
+    <button id="btn-drive-disconnect" class="text-sm font-medium text-danger hover:underline px-2">
+      Disconnect
+    </button>
+  </div>
+  <div id="drive-result" class="mt-3"></div>
+</section>
+
+<!-- ── Global ──────────────────────────────────────────────────────────── -->
+<section class="rounded-2xl border border-line p-6">
+  <h2 class="font-semibold">Global</h2>
+
+  <label class="flex items-center justify-between gap-4 mt-4 py-2">
+    <span>
+      <span class="text-sm font-medium block">Sending enabled</span>
+      <span class="text-xs text-muted">Master switch. Off = drafts still generate, nothing leaves the machine.</span>
+    </span>
+    <input type="checkbox" id="toggle-sending"
+           class="h-5 w-5 rounded border-line text-accent focus:ring-accent/30">
+  </label>
+
+  <dl class="grid grid-cols-2 gap-4 mt-4 pt-5 border-t border-line text-sm">
+    <div>
+      <dt class="text-xs text-muted">Schedule timezone</dt>
+      <dd class="mt-0.5">{{ timezone }}</dd>
+    </div>
+    <div>
+      <dt class="text-xs text-muted">Approvals</dt>
+      <dd class="mt-0.5">Dashboard only</dd>
+    </div>
+  </dl>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const badgeStyles = {
+  ok:    'bg-ok/10 text-ok border-ok/20',
+  warn:  'bg-amber-50 text-amber-700 border-amber-200',
+  bad:   'bg-danger/10 text-danger border-danger/20',
+  idle:  'bg-wash text-muted border-line',
+};
+
+function setBadge(el, text, kind) {
+  el.className = `shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border ${badgeStyles[kind]}`;
+  el.textContent = text;
+}
+
+async function loadWaha() {
+  const badge = document.getElementById('waha-badge');
+  const detail = document.getElementById('waha-detail');
+  try {
+    const s = await api.get('/api/waha/status');
+    setBadge(badge, s.status, s.ok ? 'ok' : (s.reachable ? 'warn' : 'bad'));
+    document.getElementById('waha-session').textContent = s.name;
+    if (s.ok) {
+      detail.innerHTML = `<div class="rounded-xl border border-ok/20 bg-ok/5 px-4 py-3 text-ok">
+        Connected. Messages can be sent.</div>`;
+    } else {
+      detail.innerHTML = `<div class="rounded-xl border border-line bg-wash px-4 py-3">
+        <div class="font-medium text-ink">${escapeHtml(s.error || 'Not ready')}</div>
+        ${s.hint ? `<div class="text-muted mt-1">${escapeHtml(s.hint)}</div>` : ''}
+      </div>`;
+    }
+  } catch (err) {
+    setBadge(badge, 'unreachable', 'bad');
+    detail.innerHTML = `<div class="rounded-xl border border-danger/20 bg-danger/5 px-4 py-3 text-danger">
+      ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function loadSettings() {
+  const s = await api.get('/api/settings');
+  document.getElementById('waha-url').textContent = s.waha_base_url;
+  document.getElementById('waha-session').textContent = s.waha_session;
+  document.getElementById('toggle-sending').checked = s.global_sending_enabled;
+
+  const keyBadge = document.getElementById('key-badge');
+  setBadge(keyBadge, s.openrouter_ready ? 'key set' : 'key missing',
+           s.openrouter_ready ? 'ok' : 'bad');
+
+  const sourceLabel = {
+    settings: 'saved here',
+    env: 'from .env — saving here overrides it',
+    none: 'not set',
+  }[s.openrouter_key_source] || '';
+  document.getElementById('key-source').textContent =
+    s.openrouter_key_masked ? `${s.openrouter_key_masked} · ${sourceLabel}` : sourceLabel;
+  document.getElementById('key-input').placeholder =
+    s.openrouter_ready ? `${s.openrouter_key_masked} (saved)` : 'sk-or-v1-…';
+
+  const used = s.calls_today, limit = s.free_daily_limit;
+  document.getElementById('calls-today').textContent = used;
+  document.getElementById('calls-limit').textContent = limit;
+  const pct = Math.min(100, Math.round((used / limit) * 100));
+  const bar = document.getElementById('calls-bar');
+  bar.style.width = pct + '%';
+  bar.style.backgroundColor = pct >= 90 ? '#DC2626' : (pct >= 70 ? '#D97706' : '#4F46E5');
+  if (used >= limit) {
+    document.getElementById('calls-warning').innerHTML =
+      '<span class="text-danger">You have hit the usual free daily ceiling. Drafting will fail with a 429 until it resets.</span>';
+  }
+  return s;
+}
+
+async function loadModels(current) {
+  const select = document.getElementById('model-select');
+  try {
+    const data = await api.get('/api/settings/models');
+    select.innerHTML = '';
+    data.models.forEach((m) => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = `${m.name}  —  ${m.id}`;
+      if (m.id === current) opt.selected = true;
+      select.appendChild(opt);
+    });
+    if (current && !data.models.some((m) => m.id === current)) {
+      const opt = document.createElement('option');
+      opt.value = current;
+      opt.textContent = `${current} (not in live list)`;
+      opt.selected = true;
+      select.prepend(opt);
+    }
+    document.getElementById('model-count').textContent =
+      `${data.count} free models available right now.`;
+  } catch (err) {
+    select.innerHTML = `<option value="${escapeHtml(current || '')}">${escapeHtml(current || 'unavailable')}</option>`;
+    document.getElementById('model-count').textContent =
+      'Could not reach OpenRouter for the live list — keeping your saved model.';
+  }
+}
+
+/* ── API key ─────────────────────────────────────────────────────────── */
+
+const keyInput = document.getElementById('key-input');
+const keyResult = document.getElementById('key-result');
+
+function keyMessage(html, kind) {
+  const palette = {
+    ok:   'border-ok/20 bg-ok/5 text-ok',
+    bad:  'border-danger/20 bg-danger/5 text-danger',
+    info: 'border-line bg-wash text-ink',
+  }[kind];
+  keyResult.innerHTML = `<div class="rounded-xl border px-4 py-3 text-sm ${palette}">${html}</div>`;
+}
+
+document.getElementById('btn-key-show').addEventListener('click', (e) => {
+  const showing = keyInput.type === 'text';
+  keyInput.type = showing ? 'password' : 'text';
+  e.target.textContent = showing ? 'Show' : 'Hide';
+});
+
+document.getElementById('btn-key-save').addEventListener('click', async (e) => {
+  const key = keyInput.value.trim();
+  if (!key) { showBanner('Paste a key first.'); return; }
+  e.target.disabled = true; e.target.textContent = 'Saving…';
+  try {
+    await api.patch('/api/settings', { openrouter_api_key: key });
+    keyInput.value = '';
+    keyInput.type = 'password';
+    document.getElementById('btn-key-show').textContent = 'Show';
+    const s = await loadSettings();
+    await loadModels(s.default_model);
+    keyMessage('Key saved. Drafting is enabled.', 'ok');
+  } catch (err) {
+    keyMessage(escapeHtml(err.message), 'bad');
+  } finally {
+    e.target.disabled = false; e.target.textContent = 'Save key';
+  }
+});
+
+document.getElementById('btn-key-test').addEventListener('click', async (e) => {
+  e.target.disabled = true; e.target.textContent = 'Testing…';
+  keyMessage('Asking OpenRouter…', 'info');
+  try {
+    const typed = keyInput.value.trim();
+    const info = await api.post('/api/settings/test-key',
+      typed ? { openrouter_api_key: typed } : {});
+    const bits = ['Key is valid.'];
+    if (info.label) bits.push(`Label: ${escapeHtml(info.label)}.`);
+    if (info.limit === null || info.limit === undefined) bits.push('No spend limit set.');
+    else bits.push(`Limit: $${info.limit}.`);
+    if (info.usage !== null && info.usage !== undefined) bits.push(`Used so far: $${info.usage}.`);
+    keyMessage(bits.join(' '), 'ok');
+  } catch (err) {
+    keyMessage(escapeHtml(err.message), 'bad');
+  } finally {
+    e.target.disabled = false; e.target.textContent = 'Test key';
+  }
+});
+
+document.getElementById('btn-key-clear').addEventListener('click', async () => {
+  if (!confirm('Remove the saved OpenRouter key? Drafting will stop working.')) return;
+  try {
+    await api.patch('/api/settings', { openrouter_api_key: '' });
+    keyInput.value = '';
+    await loadSettings();
+    keyMessage('Key removed.', 'info');
+  } catch (err) { keyMessage(escapeHtml(err.message), 'bad'); }
+});
+
+document.getElementById('btn-save-model').addEventListener('click', async () => {
+  try {
+    await api.patch('/api/settings', { default_model: document.getElementById('model-select').value });
+    const flag = document.getElementById('model-saved');
+    flag.classList.remove('hidden');
+    setTimeout(() => flag.classList.add('hidden'), 2500);
+  } catch (err) { showBanner(err.message); }
+});
+
+document.getElementById('toggle-sending').addEventListener('change', async (e) => {
+  try {
+    await api.patch('/api/settings', { global_sending_enabled: e.target.checked });
+    showBanner(e.target.checked ? 'Sending enabled.' : 'Sending paused — nothing will leave this machine.', 'success');
+  } catch (err) { showBanner(err.message); e.target.checked = !e.target.checked; }
+});
+
+document.getElementById('btn-start-session').addEventListener('click', async (e) => {
+  e.target.disabled = true; e.target.textContent = 'Starting…';
+  try {
+    await api.post('/api/waha/session/start');
+    showBanner('Session start requested. Open the WAHA dashboard to scan the QR.', 'info');
+  } catch (err) { showBanner(err.message); }
+  finally { e.target.disabled = false; e.target.textContent = 'Start session'; await loadWaha(); }
+});
+
+document.getElementById('btn-refresh-waha').addEventListener('click', loadWaha);
+
+/* ── Google Drive ────────────────────────────────────────────────────── */
+
+function driveMessage(html, kind) {
+  const palette = {
+    ok:   'border-ok/20 bg-ok/5 text-ok',
+    bad:  'border-danger/20 bg-danger/5 text-danger',
+    info: 'border-line bg-wash text-ink',
+  }[kind];
+  document.getElementById('drive-result').innerHTML =
+    `<div class="rounded-xl border px-4 py-3 text-sm ${palette}">${html}</div>`;
+}
+
+async function loadDrive() {
+  const badge = document.getElementById('drive-badge');
+  const detail = document.getElementById('drive-detail');
+  try {
+    const d = await api.get('/api/drive/status');
+    document.getElementById('drive-redirect').textContent = d.api.redirect_uri;
+
+    setBadge(badge, d.ready ? 'ready' : (d.provider === 'off' ? 'off' : 'not ready'),
+             d.ready ? 'ok' : (d.provider === 'off' ? 'idle' : 'warn'));
+
+    detail.innerHTML = d.ready
+      ? `<div class="rounded-xl border border-ok/20 bg-ok/5 px-4 py-3 text-ok">
+           ${escapeHtml(d.detail)}${d.api.email && d.provider === 'api' ? ' (' + escapeHtml(d.api.email) + ')' : ''}
+           Files go to the “${escapeHtml(d.folder)}” folder, shared link-readable.</div>`
+      : `<div class="rounded-xl border border-line bg-wash px-4 py-3">
+           <div class="text-ink">${escapeHtml(d.detail)}</div>
+           <div class="text-muted mt-1">Until this works, channel posts send the preview
+             image and caption but no download link.</div></div>`;
+
+    document.getElementById('prov-mcp-detail').textContent = d.mcp.available
+      ? 'Connected and working' : (d.mcp.detail || 'Unavailable');
+    document.getElementById('prov-mcp-detail').className =
+      `block text-xs mt-1.5 pl-6 ${d.mcp.available ? 'text-ok' : 'text-muted'}`;
+
+    document.getElementById('prov-api-detail').textContent = d.api.connected
+      ? 'Connected' : d.api.detail;
+    document.getElementById('prov-api-detail').className =
+      `block text-xs mt-1.5 pl-6 ${d.api.connected ? 'text-ok' : 'text-muted'}`;
+
+    const radio = document.querySelector(`input[name=drive-provider][value="${d.provider}"]`);
+    if (radio) radio.checked = true;
+    paintProviderCards();
+
+    // The Google Cloud steps only matter for the API path.
+    document.getElementById('drive-setup').open = d.provider === 'api' && !d.api.configured;
+  } catch (err) {
+    setBadge(badge, 'error', 'bad');
+    detail.innerHTML = `<div class="text-sm text-danger">${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function paintProviderCards() {
+  document.querySelectorAll('.prov-card').forEach((card) => {
+    const on = card.querySelector('input').checked;
+    card.className = `prov-card cursor-pointer rounded-xl border p-4 ${
+      on ? 'border-accent bg-accent/5' : 'border-line hover:border-accent/40'}`;
+  });
+}
+
+document.querySelectorAll('input[name=drive-provider]').forEach((radio) =>
+  radio.addEventListener('change', async () => {
+    paintProviderCards();
+    try {
+      await api.patch('/api/drive/provider', { provider: radio.value });
+      await loadDrive();
+    } catch (err) { driveMessage(escapeHtml(err.message), 'bad'); }
+  }));
+
+document.getElementById('btn-drive-save').addEventListener('click', async (e) => {
+  const json = document.getElementById('drive-json').value.trim();
+  if (!json) { showBanner('Paste the OAuth client JSON first.'); return; }
+  e.target.disabled = true;
+  try {
+    await api.post('/api/drive/credentials', { client_json: json });
+    document.getElementById('drive-json').value = '';
+    await loadDrive();
+    driveMessage('Credentials saved. Now click <strong>Connect Google Drive</strong>.', 'ok');
+  } catch (err) { driveMessage(escapeHtml(err.message), 'bad'); }
+  finally { e.target.disabled = false; }
+});
+
+document.getElementById('btn-drive-connect').addEventListener('click', async () => {
+  try {
+    const { url } = await api.get('/api/drive/auth-url');
+    driveMessage('Opening Google in a new tab — approve access, then come back.', 'info');
+    window.open(url, '_blank', 'noopener');
+  } catch (err) { driveMessage(escapeHtml(err.message), 'bad'); }
+});
+
+document.getElementById('btn-drive-test').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  driveMessage('Checking…', 'info');
+  try {
+    const r = await api.post('/api/drive/test', {});
+    driveMessage(`Working. Connected as ${escapeHtml(r.email || 'your account')};
+      “${escapeHtml(r.folder)}” holds ${r.files.length} file(s).`, 'ok');
+  } catch (err) { driveMessage(escapeHtml(err.message), 'bad'); }
+  finally { e.target.disabled = false; }
+});
+
+document.getElementById('btn-drive-disconnect').addEventListener('click', async () => {
+  if (!confirm('Disconnect Google Drive? Channel posts will lose their download link.')) return;
+  try {
+    await api.post('/api/drive/disconnect', {});
+    await loadDrive();
+    driveMessage('Disconnected.', 'info');
+  } catch (err) { driveMessage(escapeHtml(err.message), 'bad'); }
+});
+
+(async () => {
+  await loadWaha();
+  const s = await loadSettings();
+  await loadModels(s.default_model);
+  await loadDrive();
+})();
+</script>
+{% endblock %}

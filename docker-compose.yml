@@ -1,0 +1,24 @@
+services:
+  waha:
+    # Apple Silicon: devlikeapro/waha:latest is amd64-only and will not pull.
+    # `noweb-arm` is the native arm64 build of the NOWEB engine - no Chromium,
+    # smallest image, no Rosetta emulation. On an Intel Mac or Windows/Linux
+    # x86 box, use devlikeapro/waha:noweb (or :latest) instead.
+    image: devlikeapro/waha:noweb-arm
+    container_name: waha
+    ports:
+      # HC-3: loopback ONLY. Never bind 0.0.0.0 - this container holds your
+      # live WhatsApp session and has no auth beyond the API key.
+      - "127.0.0.1:3000:3000"
+    environment:
+      - WHATSAPP_DEFAULT_ENGINE=NOWEB
+      - WAHA_API_KEY=${WAHA_API_KEY}
+      # Without these pinned, WAHA generates a NEW random dashboard/Swagger
+      # password on every boot and your QR login changes each restart.
+      - WAHA_DASHBOARD_USERNAME=${WAHA_DASHBOARD_USERNAME}
+      - WAHA_DASHBOARD_PASSWORD=${WAHA_DASHBOARD_PASSWORD}
+      - WHATSAPP_SWAGGER_USERNAME=${WAHA_DASHBOARD_USERNAME}
+      - WHATSAPP_SWAGGER_PASSWORD=${WAHA_DASHBOARD_PASSWORD}
+    volumes:
+      - ./waha-sessions:/app/.sessions
+    restart: unless-stopped

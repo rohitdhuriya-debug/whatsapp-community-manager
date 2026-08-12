@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+{% block title %}Devices · {{ app_title }}{% endblock %}
+
+{% block content %}
+<div class="flex items-start justify-between gap-6 mb-8">
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">Devices</h1>
+    <p class="text-sm text-muted mt-1">
+      Every linked WhatsApp account. Each one has its own groups and channels.
+    </p>
+  </div>
+  <button id="btn-add-device"
+          class="shrink-0 bg-accent text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:bg-accent/90 transition">
+    + Link a device
+  </button>
+</div>
+
+<div id="waha-health" class="mb-5"></div>
+
+<div id="device-list" class="space-y-4">
+  <div class="rounded-2xl border border-line p-8 text-center text-sm text-muted">Loading…</div>
+</div>
+
+<!-- Add-device panel -->
+<div id="add-panel" class="hidden rounded-2xl border border-accent/30 bg-accent/5 p-6 mt-5">
+  <h2 class="font-semibold">Link a new WhatsApp account</h2>
+  <p class="text-sm text-muted mt-1">
+    Give it a name, then scan the QR from that phone. Turn any VPN off while pairing.
+  </p>
+  <div class="flex items-center gap-2 mt-4">
+    <input id="new-device-name" class="field" placeholder="Work phone">
+    <button id="btn-create-device"
+            class="shrink-0 bg-accent text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:bg-accent/90">
+      Create &amp; show QR
+    </button>
+    <button id="btn-cancel-device"
+            class="shrink-0 text-sm font-medium border border-line bg-white rounded-xl px-4 py-2.5 hover:bg-wash">
+      Cancel
+    </button>
+  </div>
+</div>
+
+<!-- QR modal -->
+<div id="qr-modal" class="hidden fixed inset-0 z-50 grid place-items-center p-6"
+     style="background: rgba(17,24,39,.45)">
+  <div class="bg-white rounded-2xl border border-line max-w-sm w-full p-6 text-center">
+    <h3 class="font-semibold" id="qr-title">Scan to link</h3>
+    <p class="text-sm text-muted mt-1">
+      WhatsApp → Settings → Linked devices → Link a device
+    </p>
+    <div class="mt-5 grid place-items-center min-h-[280px]" id="qr-holder">
+      <span class="text-sm text-muted">Loading QR…</span>
+    </div>
+    <p class="text-xs text-muted mt-3" id="qr-status">Waiting for scan…</p>
+    <div class="mt-4 text-left rounded-xl border border-line bg-wash px-4 py-3">
+      <div class="text-xs font-medium text-ink">If WhatsApp says “couldn't link device”</div>
+      <ul class="text-xs text-muted mt-1.5 space-y-1 list-disc pl-4">
+        <li>Turn any VPN off on the phone <em>and</em> this Mac, then retry</li>
+        <li>WhatsApp allows only 4 linked devices — remove an old one first</li>
+        <li>The code refreshes automatically; scan the one on screen now</li>
+        <li>Still stuck? Press <strong>Restart</strong> on the device and reopen this</li>
+      </ul>
+    </div>
+    <button id="qr-close"
+            class="mt-4 w-full text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash">
+      Close
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const STATUS_STYLES = {
+  WORKING:      'bg-ok/10 text-ok border-ok/20',
+  SCAN_QR_CODE: 'bg-amber-50 text-amber-700 border-amber-200',
+  STARTING:     'bg-amber-50 text-amber-700 border-amber-200',
+  FAILED:       'bg-danger/10 text-danger border-danger/20',
+  STOPPED:      'bg-wash text-muted border-line',
+};
+
+let qrTimer = null;
+
+async function loadDevices() {
+  const host = document.getElementById('device-list');
+  try {
+    const devices = await api.get('/api/devices');
+    if (!devices.length) {
+      host.innerHTML = `<div class="rounded-2xl border border-line p-8 text-center">
+        <p class="font-medium">No devices yet</p>
+        <p class="text-sm text-muted mt-1">Link your WhatsApp to get started.</p></div>`;
+      return;
+    }
+    host.innerHTML = devices.map((d) => {
+      const style = STATUS_STYLES[d.status] || 'bg-wash text-muted border-line';
+      const identity = d.push_name
+        ? `${escapeHtml(d.push_name)}${d.phone ? ' · +' + escapeHtml(d.phone) : ''}`
+        : 'Not paired yet';
+      return `
+      <div class="rounded-2xl border border-line p-5">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-medium truncate">${escapeHtml(d.name)}</span>
+              ${d.is_primary ? '<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-wash border border-line text-muted">primary</span>' : ''}
+            </div>
+            <div class="text-sm text-muted mt-1">${identity}</div>
+            <div class="text-xs text-muted mt-1 font-mono">session: ${escapeHtml(d.session_name)}</div>
+          </div>
+          <span class="shrink-0 text-xs font-medium px-3 py-1.5 rounded-full border ${style}">
+            ${escapeHtml(d.status)}
+          </span>
+        </div>
+
+        ${d.error ? `<div class="mt-3 rounded-xl border border-line bg-wash px-4 py-2.5 text-sm">
+            <div class="text-ink">${escapeHtml(d.error)}</div>
+            ${d.hint ? `<div class="text-muted text-xs mt-0.5">${escapeHtml(d.hint)}</div>` : ''}
+          </div>` : ''}
+
+        <div class="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
+          <span class="text-xs text-muted mr-auto">${d.target_count} saved chat${d.target_count === 1 ? '' : 's'}</span>
+          ${d.status !== 'WORKING'
+            ? `<button data-qr="${d.id}" data-name="${escapeHtml(d.name)}"
+                 class="text-sm font-medium bg-accent text-white rounded-xl px-3.5 py-2 hover:bg-accent/90">Show QR</button>`
+            : `<a href="/compose?device=${d.id}"
+                 class="text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Compose from this</a>`}
+          <button data-restart="${d.id}"
+                  class="text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Restart</button>
+          ${d.is_primary ? '' :
+            `<button data-del="${d.id}" class="text-sm font-medium text-danger border border-danger/20 rounded-xl px-3.5 py-2 hover:bg-danger/5">Remove</button>`}
+        </div>
+      </div>`;
+    }).join('');
+
+    host.querySelectorAll('[data-qr]').forEach((b) =>
+      b.addEventListener('click', () => showQr(b.dataset.qr, b.dataset.name)));
+    host.querySelectorAll('[data-restart]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        b.disabled = true; b.textContent = 'Restarting…';
+        try { await api.post(`/api/devices/${b.dataset.restart}/restart`); showBanner('Restarting…', 'info'); }
+        catch (err) { showBanner(err.message); }
+        setTimeout(loadDevices, 3000);
+      }));
+    host.querySelectorAll('[data-del]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm('Remove this device? Its WhatsApp session is unlinked.')) return;
+        try { await api.del(`/api/devices/${b.dataset.del}`); loadDevices(); }
+        catch (err) { showBanner(err.message); }
+      }));
+  } catch (err) {
+    host.innerHTML = `<div class="rounded-2xl border border-danger/20 bg-danger/5 p-5 text-sm text-danger">
+      ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function showQr(deviceId, name) {
+  const modal = document.getElementById('qr-modal');
+  const holder = document.getElementById('qr-holder');
+  const status = document.getElementById('qr-status');
+  document.getElementById('qr-title').textContent = `Scan to link “${name}”`;
+  modal.classList.remove('hidden');
+  holder.innerHTML = '<span class="text-sm text-muted">Loading QR…</span>';
+
+  async function refresh() {
+    try {
+      const state = await api.get(`/api/waha/status?device_id=${deviceId}`);
+      if (state.ok) {
+        holder.innerHTML = '<div class="text-ok font-medium text-lg">Linked ✓</div>';
+        status.textContent = 'Paired successfully.';
+        clearInterval(qrTimer);
+        loadDevices();
+        loadHealth();
+        return;
+      }
+
+      // WAHA force-stops the session once its QR attempts run out; the /qr
+      // endpoint restarts it, so a stale code never becomes a dead end.
+      status.textContent = state.status === 'FAILED' || state.status === 'STOPPED'
+        ? 'Code expired — generating a fresh one…'
+        : `Status: ${state.status} · code refreshes automatically`;
+
+      const img = new Image();
+      img.className = 'w-64 h-64 object-contain';
+      img.alt = 'QR code';
+      img.onload = () => { holder.innerHTML = ''; holder.appendChild(img); };
+      img.onerror = () => {
+        holder.innerHTML =
+          '<span class="text-sm text-muted">Getting a fresh code…</span>';
+      };
+      img.src = `/api/devices/${deviceId}/qr?t=${Date.now()}`;
+    } catch (err) {
+      status.textContent = err.message;
+    }
+  }
+
+  await refresh();
+  clearInterval(qrTimer);
+  // Faster than WAHA's ~20s rotation, so the code on screen is always current.
+  qrTimer = setInterval(refresh, 8000);
+}
+
+document.getElementById('qr-close').addEventListener('click', () => {
+  clearInterval(qrTimer);
+  document.getElementById('qr-modal').classList.add('hidden');
+  loadDevices();
+});
+
+document.getElementById('btn-add-device').addEventListener('click', () =>
+  document.getElementById('add-panel').classList.remove('hidden'));
+document.getElementById('btn-cancel-device').addEventListener('click', () =>
+  document.getElementById('add-panel').classList.add('hidden'));
+
+document.getElementById('btn-create-device').addEventListener('click', async (e) => {
+  const name = document.getElementById('new-device-name').value.trim();
+  if (!name) { showBanner('Give the device a name.'); return; }
+  e.target.disabled = true; e.target.textContent = 'Creating…';
+  try {
+    const device = await api.post('/api/devices', { name });
+    document.getElementById('add-panel').classList.add('hidden');
+    document.getElementById('new-device-name').value = '';
+    await loadDevices();
+    setTimeout(() => showQr(device.id, device.name), 1500);
+  } catch (err) { showBanner(err.message); }
+  finally { e.target.disabled = false; e.target.textContent = 'Create & show QR'; }
+});
+
+/* ── WAHA bridge health, so its own UI is never needed ──────────────────── */
+
+async function loadHealth() {
+  const host = document.getElementById('waha-health');
+  try {
+    const h = await api.get('/api/devices/waha/health');
+    if (!h.reachable) {
+      host.innerHTML = `<div class="rounded-2xl border border-danger/20 bg-danger/5 p-5">
+        <div class="font-medium text-danger">WhatsApp bridge is unreachable</div>
+        <div class="text-sm text-muted mt-1">${escapeHtml(h.error || '')}</div>
+        <div class="text-sm text-muted mt-1">${escapeHtml(h.hint || '')}</div>
+        <code class="inline-block mt-2 text-xs bg-white border border-line rounded px-2 py-1">docker compose up -d</code>
+      </div>`;
+      return;
+    }
+    const orphanBlock = h.orphans.length ? `
+      <div class="mt-3 pt-3 border-t border-line">
+        <div class="text-xs font-medium text-ink">Leftover sessions (not linked to a device)</div>
+        <div class="flex flex-wrap gap-2 mt-2">
+          ${h.orphans.map((n) => `
+            <span class="inline-flex items-center gap-2 text-xs border border-line rounded-full pl-3 pr-1.5 py-1">
+              ${escapeHtml(n)}
+              <button data-orphan="${escapeHtml(n)}"
+                      class="text-danger hover:opacity-70 px-1">remove</button>
+            </span>`).join('')}
+        </div>
+      </div>` : '';
+
+    host.innerHTML = `<div class="rounded-2xl border border-line p-5">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <div class="font-medium flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-ok"></span> WhatsApp bridge running
+          </div>
+          <div class="text-xs text-muted mt-1 font-mono">${escapeHtml(h.base_url)} ·
+            ${h.sessions.length} session${h.sessions.length === 1 ? '' : 's'}</div>
+        </div>
+        <button id="btn-health-refresh" class="text-sm text-accent hover:underline">Refresh</button>
+      </div>
+      ${orphanBlock}
+    </div>`;
+
+    document.getElementById('btn-health-refresh')
+      .addEventListener('click', () => { loadHealth(); loadDevices(); });
+    host.querySelectorAll('[data-orphan]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        if (!confirm(`Remove leftover session "${b.dataset.orphan}"?`)) return;
+        try { await api.del(`/api/devices/waha/sessions/${encodeURIComponent(b.dataset.orphan)}`); loadHealth(); }
+        catch (err) { showBanner(err.message); }
+      }));
+  } catch (err) {
+    host.innerHTML = `<div class="rounded-2xl border border-danger/20 bg-danger/5 p-5 text-sm text-danger">
+      ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+loadHealth();
+loadDevices();
+setInterval(() => {
+  if (document.getElementById('qr-modal').classList.contains('hidden')) { loadDevices(); loadHealth(); }
+}, 15000);
+</script>
+{% endblock %}

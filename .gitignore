@@ -1,0 +1,32 @@
+# Secrets - never commit
+.env
+
+# Database
+app.db
+app.db-journal
+app.db-wal
+app.db-shm
+
+# WhatsApp session data (contains your live WhatsApp auth - NEVER commit)
+waha-sessions/
+
+# Generated PDFs / spreadsheets. Regenerable, and they carry your content.
+assets/
+
+# Scratch directory the Claude Code engine runs in
+.claude-workdir/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/

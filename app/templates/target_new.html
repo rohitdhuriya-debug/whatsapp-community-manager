@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+{% block title %}Add target · {{ app_title }}{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+  <h1 class="text-2xl font-semibold tracking-tight">Add community or channel</h1>
+  <p class="text-sm text-muted mt-1">
+    Pick a chat from your live WhatsApp list, then give it a persona.
+  </p>
+</div>
+
+<!-- Step 1 : pick the chat -->
+<section class="rounded-2xl border border-line p-6 mb-5">
+  <div class="flex items-center justify-between gap-4">
+    <h2 class="font-semibold">1 · Choose the chat</h2>
+    <button id="btn-reload" class="text-sm text-accent hover:underline">Reload list</button>
+  </div>
+
+  <div class="flex items-center gap-1 mt-4 p-1 bg-wash rounded-xl w-fit border border-line">
+    <button data-tab="group"
+            class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium bg-white shadow-sm">
+      Groups
+    </button>
+    <button data-tab="channel"
+            class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-muted">
+      Channels
+    </button>
+  </div>
+
+  <input id="picker-search" class="field mt-4" placeholder="Filter by name…">
+  <p id="picker-hint" class="text-xs text-muted mt-2"></p>
+
+  <div id="picker-list" class="mt-3 border border-line rounded-xl divide-y divide-line max-h-80 overflow-y-auto">
+    <div class="px-4 py-8 text-center text-sm text-muted">Loading your chats…</div>
+  </div>
+
+  <div id="picked" class="hidden mt-4 rounded-xl border border-accent/30 bg-accent/5 px-4 py-3">
+    <div class="text-sm font-medium text-accent" id="picked-name"></div>
+    <div class="text-xs text-muted font-mono mt-0.5" id="picked-id"></div>
+  </div>
+</section>
+
+<!-- Step 2 : persona -->
+<section class="rounded-2xl border border-line p-6 mb-5">
+  <h2 class="font-semibold">2 · Persona &amp; brief</h2>
+
+  <div class="mt-4">
+    <span class="text-xs font-medium text-muted">Quick start</span>
+    <div class="flex flex-wrap gap-2 mt-1.5">
+      <button class="preset-btn text-xs border border-line rounded-full px-3 py-1.5 hover:bg-wash"
+              data-preset="ai">AI tools</button>
+      <button class="preset-btn text-xs border border-line rounded-full px-3 py-1.5 hover:bg-wash"
+              data-preset="investing">Premium investing</button>
+      <button class="preset-btn text-xs border border-line rounded-full px-3 py-1.5 hover:bg-wash"
+              data-preset="blank">Blank</button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-4 mt-5">
+    <label class="block">
+      <span class="text-sm font-medium">Display name</span>
+      <input id="f-name" class="field mt-1.5" placeholder="AI Tools Daily">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Niche</span>
+      <input id="f-niche" class="field mt-1.5" placeholder="AI tools">
+    </label>
+  </div>
+
+  <label class="block mt-4">
+    <span class="text-sm font-medium">Persona prompt</span>
+    <span class="block text-xs text-muted mt-0.5">Who is writing, and for whom. This is the system prompt.</span>
+    <textarea id="f-persona" class="field mt-1.5" rows="5"
+      placeholder="You write for a WhatsApp community of Indian founders and developers…"></textarea>
+  </label>
+
+  <label class="block mt-4">
+    <span class="text-sm font-medium">Research instructions</span>
+    <span class="block text-xs text-muted mt-0.5">The search brief. Used verbatim as the query base.</span>
+    <textarea id="f-research" class="field mt-1.5" rows="3"
+      placeholder="new AI tool launches, LLM releases, practical AI workflows for founders"></textarea>
+  </label>
+
+  <div class="grid grid-cols-2 gap-4 mt-4">
+    <label class="block">
+      <span class="text-sm font-medium">Tone</span>
+      <input id="f-tone" class="field mt-1.5" placeholder="punchy, practical, no hype">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Language</span>
+      <select id="f-language" class="field mt-1.5">
+        <option value="hinglish">Hinglish (Roman script)</option>
+        <option value="english">English</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="grid grid-cols-2 gap-4 mt-4">
+    <label class="block">
+      <span class="text-sm font-medium">CTA link <span class="text-muted font-normal">(optional)</span></span>
+      <input id="f-cta" class="field mt-1.5" placeholder="https://…">
+    </label>
+    <label class="block">
+      <span class="text-sm font-medium">Banned topics <span class="text-muted font-normal">(optional)</span></span>
+      <input id="f-banned" class="field mt-1.5" placeholder="politics, religion, crypto shilling">
+    </label>
+  </div>
+
+  <label class="block mt-4">
+    <span class="text-sm font-medium">Example messages <span class="text-muted font-normal">(optional)</span></span>
+    <span class="block text-xs text-muted mt-0.5">
+      Your best past messages, one per blank-line-separated block. Used as few-shot examples so drafts sound like you.
+    </span>
+    <textarea id="f-examples" class="field mt-1.5 font-mono text-[13px]" rows="5"
+      placeholder="*Perplexity ne kuch naya launch kiya hai* …&#10;&#10;*Yeh tool aapka 2 ghante bachayega* …"></textarea>
+  </label>
+</section>
+
+<!-- Step 3 : delivery -->
+<section class="rounded-2xl border border-line p-6 mb-5">
+  <h2 class="font-semibold">3 · Delivery</h2>
+
+  <label class="flex items-center justify-between gap-4 mt-4 py-2">
+    <span>
+      <span class="text-sm font-medium block">Require my approval before sending</span>
+      <span class="text-xs text-muted">Strongly recommended. Off = drafts go out automatically.</span>
+    </span>
+    <input type="checkbox" id="f-approval" checked
+           class="h-5 w-5 rounded border-line text-accent focus:ring-accent/30">
+  </label>
+
+  <div class="mt-4">
+    <span class="text-sm font-medium">Schedule</span>
+    <select id="f-schedule" class="field mt-1.5">
+      <option value="">No schedule for now</option>
+      <option value="0 9 * * *">Daily at 9:00 AM</option>
+      <option value="0 10 * * 1">Weekly, Monday 10:00 AM</option>
+      <option value="custom">Custom cron…</option>
+    </select>
+    <input id="f-cron" class="field mt-2 hidden font-mono" placeholder="0 9 * * *">
+    <p id="cron-preview" class="text-xs text-muted mt-1.5"></p>
+  </div>
+
+  <label class="block mt-4">
+    <span class="text-sm font-medium">Content type</span>
+    <select id="f-content" class="field mt-1.5">
+      <option value="news">News roundup</option>
+      <option value="tip">Tip</option>
+      <option value="resource">Resource</option>
+      <option value="poll">Poll</option>
+    </select>
+  </label>
+</section>
+
+<div class="flex items-center gap-3">
+  <button id="btn-save"
+          class="bg-accent text-white text-sm font-medium rounded-xl px-5 py-2.5 hover:bg-accent/90 transition disabled:opacity-40">
+    Save target
+  </button>
+  <a href="/" class="text-sm font-medium border border-line rounded-xl px-5 py-2.5 hover:bg-wash transition">
+    Cancel
+  </a>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PRESETS = {
+  ai: {
+    name: 'AI Tools Daily',
+    niche: 'AI tools',
+    persona: "You write for a WhatsApp community of Indian founders, developers and marketers who want to actually USE AI, not read theory about it.\nYou are the friend who tries every new tool and reports back honestly. You call out hype.\nEvery message must give one concrete, usable takeaway - a tool, a workflow, or a prompt they can try today.",
+    research: 'new AI tool launches, LLM model releases, practical AI workflows and automations for founders and marketers',
+    tone: 'punchy, practical, honest, zero hype',
+    banned: 'crypto shilling, politics, fear-mongering about job loss',
+  },
+  investing: {
+    name: 'Premium Investing',
+    niche: 'investing',
+    persona: "You write for a paid WhatsApp community of serious Indian retail investors.\nThey already know the basics - never explain what a mutual fund is. Give them the signal, not the noise.\nBe precise with numbers and always name your source. Never predict prices, never promise returns.",
+    research: 'Indian stock market news, Nifty Sensex moves, RBI policy, earnings results, sector rotation, FII DII flows',
+    tone: 'calm, precise, data-led, no hype',
+    banned: 'penny stock tips, guaranteed returns, price targets, F&O tips',
+  },
+  blank: { name: '', niche: '', persona: '', research: '', tone: '', banned: '' },
+};
+
+let picked = null;
+let currentTab = 'group';
+let cache = { group: null, channel: null };
+
+/* ── picker ─────────────────────────────────────────────────────────────── */
+
+function renderList(items, kind) {
+  const host = document.getElementById('picker-list');
+  const q = document.getElementById('picker-search').value.trim().toLowerCase();
+  const filtered = q ? items.filter((i) => i.name.toLowerCase().includes(q)) : items;
+
+  const hint = document.getElementById('picker-hint');
+  if (kind === 'group' && items.length) {
+    const ann = items.filter((i) => i.is_announce).length;
+    hint.textContent = `${items.length} groups · ${ann} announcement group${ann === 1 ? '' : 's'} listed first`;
+  } else {
+    hint.textContent = items.length ? `${items.length} ${kind}${items.length === 1 ? '' : 's'}` : '';
+  }
+
+  if (!filtered.length) {
+    host.innerHTML = `<div class="px-4 py-8 text-center text-sm text-muted">
+      ${items.length ? 'Nothing matches that filter.' : `No ${kind}s found on this WhatsApp account.`}
+    </div>`;
+    return;
+  }
+
+  host.innerHTML = filtered.map((i) => `
+    <button type="button" class="w-full text-left px-4 py-3 hover:bg-wash flex items-center justify-between gap-3"
+            data-id="${escapeHtml(i.id)}" data-name="${escapeHtml(i.name)}">
+      <span class="min-w-0">
+        <span class="flex items-center gap-1.5">
+          <span class="text-sm truncate">${escapeHtml(i.name)}</span>
+          ${i.is_announce ? `<span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full
+            bg-accent/10 text-accent border border-accent/20">announcements</span>` : ''}
+          ${i.is_community && !i.is_announce ? `<span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-full
+            bg-wash text-muted border border-line">community</span>` : ''}
+        </span>
+        <span class="block text-xs text-muted font-mono truncate mt-0.5">${escapeHtml(i.id)}</span>
+      </span>
+      ${i.participants ? `<span class="text-xs text-muted shrink-0">${i.participants.toLocaleString()} members</span>` : ''}
+    </button>`).join('');
+
+  host.querySelectorAll('button[data-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      picked = { id: btn.dataset.id, name: btn.dataset.name, type: currentTab };
+      document.getElementById('picked').classList.remove('hidden');
+      document.getElementById('picked-name').textContent = `${picked.name} · ${picked.type}`;
+      document.getElementById('picked-id').textContent = picked.id;
+      if (!document.getElementById('f-name').value) {
+        document.getElementById('f-name').value = picked.name;
+      }
+      host.querySelectorAll('button[data-id]').forEach((b) => b.classList.remove('bg-accent/5'));
+      btn.classList.add('bg-accent/5');
+    });
+  });
+}
+
+async function loadTab(kind, force = false) {
+  const host = document.getElementById('picker-list');
+  if (!force && cache[kind]) { renderList(cache[kind], kind); return; }
+  host.innerHTML = `<div class="px-4 py-8 text-center text-sm text-muted">Loading your ${kind}s…</div>`;
+  try {
+    cache[kind] = await api.get(`/api/waha/${kind}s`);
+    renderList(cache[kind], kind);
+  } catch (err) {
+    host.innerHTML = `<div class="px-4 py-6 text-sm">
+      <div class="text-danger font-medium">Could not load ${kind}s</div>
+      <div class="text-muted mt-1">${escapeHtml(err.message)}</div>
+      <a href="/settings" class="text-accent hover:underline mt-2 inline-block">Check connection →</a>
+    </div>`;
+  }
+}
+
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    currentTab = btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach((b) => {
+      const on = b === btn;
+      b.className = `tab-btn px-4 py-1.5 rounded-lg text-sm font-medium ${on ? 'bg-white shadow-sm' : 'text-muted'}`;
+    });
+    loadTab(currentTab);
+  });
+});
+
+document.getElementById('picker-search').addEventListener('input', () => {
+  if (cache[currentTab]) renderList(cache[currentTab], currentTab);
+});
+document.getElementById('btn-reload').addEventListener('click', () => loadTab(currentTab, true));
+
+/* ── presets ────────────────────────────────────────────────────────────── */
+
+document.querySelectorAll('.preset-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const p = PRESETS[btn.dataset.preset];
+    document.getElementById('f-name').value = p.name || (picked ? picked.name : '');
+    document.getElementById('f-niche').value = p.niche;
+    document.getElementById('f-persona').value = p.persona;
+    document.getElementById('f-research').value = p.research;
+    document.getElementById('f-tone').value = p.tone;
+    document.getElementById('f-banned').value = p.banned;
+  });
+});
+
+/* ── schedule ───────────────────────────────────────────────────────────── */
+
+const schedSelect = document.getElementById('f-schedule');
+const cronInput = document.getElementById('f-cron');
+
+function chosenCron() {
+  const v = schedSelect.value;
+  if (!v) return '';
+  return v === 'custom' ? cronInput.value.trim() : v;
+}
+
+async function updateCronPreview() {
+  const expr = chosenCron();
+  const out = document.getElementById('cron-preview');
+  if (!expr) { out.textContent = ''; return; }
+  try {
+    const p = await api.get(`/api/schedules/preview?cron_expr=${encodeURIComponent(expr)}`);
+    out.innerHTML = `<span class="text-ink">${escapeHtml(p.human)}</span> · next: ${escapeHtml(p.next_runs[0] || '—')}`;
+  } catch (err) {
+    out.innerHTML = `<span class="text-danger">${escapeHtml(err.message)}</span>`;
+  }
+}
+
+schedSelect.addEventListener('change', () => {
+  cronInput.classList.toggle('hidden', schedSelect.value !== 'custom');
+  updateCronPreview();
+});
+cronInput.addEventListener('input', updateCronPreview);
+
+/* ── save ───────────────────────────────────────────────────────────────── */
+
+document.getElementById('btn-save').addEventListener('click', async (e) => {
+  if (!picked) { showBanner('Pick a group or channel first.'); return; }
+  const name = document.getElementById('f-name').value.trim();
+  if (!name) { showBanner('Give the target a display name.'); return; }
+
+  const examples = document.getElementById('f-examples').value
+    .split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
+
+  e.target.disabled = true; e.target.textContent = 'Saving…';
+  try {
+    const target = await api.post('/api/targets', {
+      name,
+      niche: document.getElementById('f-niche').value.trim(),
+      type: picked.type,
+      chat_id: picked.id,
+      persona_prompt: document.getElementById('f-persona').value.trim(),
+      research_instructions: document.getElementById('f-research').value.trim(),
+      tone: document.getElementById('f-tone').value.trim(),
+      language: document.getElementById('f-language').value,
+      example_messages: examples,
+      banned_topics: document.getElementById('f-banned').value.trim(),
+      cta_link: document.getElementById('f-cta').value.trim(),
+      approval_required: document.getElementById('f-approval').checked,
+      enabled: true,
+    });
+
+    const cron = chosenCron();
+    if (cron) {
+      await api.post('/api/schedules', {
+        target_id: target.id,
+        cron_expr: cron,
+        content_type: document.getElementById('f-content').value,
+        active: true,
+      });
+    }
+    window.location.href = `/targets/${target.id}`;
+  } catch (err) {
+    showBanner(err.message);
+    e.target.disabled = false; e.target.textContent = 'Save target';
+  }
+});
+
+loadTab('group');
+</script>
+{% endblock %}
