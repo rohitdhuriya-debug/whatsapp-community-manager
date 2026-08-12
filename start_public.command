@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin:$HOME/.local/bin"
 
 echo "──────────────────────────────────────────────"
-echo " WhatsApp Manager — public link"
+echo " Upsurge WhatsApp Manager — public link"
 echo "──────────────────────────────────────────────"
 
 [ -f .env ] || { echo "ERROR: .env missing. Copy .env.example to .env first."; exit 1; }

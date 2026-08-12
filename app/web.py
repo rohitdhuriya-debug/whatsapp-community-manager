@@ -40,7 +40,7 @@ def page(
         "sidebar_targets": targets,
         "pending_count": pending_count,
         "timezone": config.timezone,
-        "app_title": "WhatsApp Manager",
+        "app_title": "Upsurge WhatsApp Manager",
     }
     base.update(context)
     return templates.TemplateResponse(request, template, base)

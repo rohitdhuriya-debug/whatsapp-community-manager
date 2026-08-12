@@ -40,7 +40,7 @@ FOLDER_KEY = "drive_folder_id"
 VERIFIER_KEY = "drive_code_verifier"
 STATE_KEY = "drive_oauth_state"
 
-FOLDER_NAME = "WhatsApp Manager"
+FOLDER_NAME = "Upsurge WhatsApp Manager"
 FOLDER_MIME = "application/vnd.google-apps.folder"
 
 

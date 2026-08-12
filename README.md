@@ -221,7 +221,7 @@ Settings → **Google Drive** walks you through it:
 6. Click **Connect Google Drive** and approve
 
 The app requests only the `drive.file` scope, so it can see files it created and nothing
-else in your Drive. Uploads land in a `WhatsApp Manager` folder, shared link-readable so
+else in your Drive. Uploads land in a `Upsurge WhatsApp Manager` folder, shared link-readable so
 channel subscribers can open them. **Test** verifies the connection any time.
 
 ### Files tab

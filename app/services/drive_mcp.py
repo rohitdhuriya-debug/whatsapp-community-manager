@@ -40,7 +40,7 @@ ALLOWED_TOOLS = [
     f"{DRIVE_PREFIX}get_file_permissions",
 ]
 
-FOLDER_NAME = "WhatsApp Manager"
+FOLDER_NAME = "Upsurge WhatsApp Manager"
 
 # Hard ceiling, and much lower than it looks like it should be.
 #

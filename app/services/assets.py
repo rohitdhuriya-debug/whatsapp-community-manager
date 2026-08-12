@@ -502,7 +502,7 @@ def build_pdf(payload: dict[str, Any], *, brand: str = "") -> tuple[Path, str]:
     doc = _DocTemplate(
         str(path), pagesize=A4,
         leftMargin=22 * mm, rightMargin=22 * mm, topMargin=22 * mm, bottomMargin=22 * mm,
-        title=title, author=brand or "WhatsApp Manager", footer=footer,
+        title=title, author=brand or "Upsurge WhatsApp Manager", footer=footer,
     )
     # build() consumes the story list, so measure it first.
     flowables = len(story)
