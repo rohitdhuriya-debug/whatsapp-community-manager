@@ -294,7 +294,8 @@ async function loadDevices() {
               class="chip flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm
               ${d.id === state.deviceId ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
         <span class="h-1.5 w-1.5 rounded-full ${d.ok ? 'bg-ok' : 'bg-amber-400'}"></span>
-        <span>${d.platform === 'telegram' ? '✈️' : '💬'}</span>
+        <img src="/static/img/${d.platform === 'telegram' ? 'telegram' : 'whatsapp'}.png"
+             alt="" width="16" height="16" style="width:16px;height:16px">
         <span>${escapeHtml(d.name)}</span>
       </button>`).join('');
 
