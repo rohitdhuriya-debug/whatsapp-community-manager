@@ -395,6 +395,7 @@ async def restart_device(device_id: int, session: Session = Depends(get_session)
 async def logout_device(device_id: int, session: Session = Depends(get_session)) -> dict:
     """Unlink the phone but keep the device and its targets."""
     device = _get_or_404(session, device_id)
+    _stop_pairing(device.session_name)
     try:
         await waha.logout_session(device.session_name)
     except waha.WahaError as exc:
@@ -409,6 +410,10 @@ async def logout_device(device_id: int, session: Session = Depends(get_session))
 @router.delete("/{device_id}", status_code=204)
 async def delete_device(device_id: int, session: Session = Depends(get_session)) -> None:
     device = _get_or_404(session, device_id)
+
+    # Stop the pairing watcher first, or it will happily recreate the session
+    # it is still holding a window for, seconds after the delete.
+    _stop_pairing(device.session_name)
 
     in_use = session.exec(select(Target).where(Target.device_id == device_id)).all()
     if in_use:
