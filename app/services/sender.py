@@ -18,9 +18,9 @@ from sqlmodel import Session, select
 
 from ..config import config
 from ..db import get_setting
-from ..models import Device, Draft, SendLog, Target
+from ..models import Device, Draft, Platform, SendLog, Target
 from ..util import utcnow
-from . import waha
+from . import telegram, waha
 
 log = logging.getLogger(__name__)
 
@@ -54,17 +54,23 @@ def assert_known_chat(session: Session, chat_id: str) -> Target:
     return target
 
 
-def session_for_target(session: Session, target: Target) -> str:
-    """Which linked device this chat belongs to."""
+def device_for_target(session: Session, target: Target) -> Device | None:
+    """The linked account this chat belongs to."""
     if target.device_id is None:
-        return config.waha_session
+        return None
     device = session.get(Device, target.device_id)
     if device is None:
         raise SendBlocked(
             f"'{target.name}' points at a device that no longer exists. "
             "Re-link it on the Devices tab."
         )
-    return device.session_name
+    return device
+
+
+def session_for_target(session: Session, target: Target) -> str:
+    """WAHA session name for a WhatsApp target."""
+    device = device_for_target(session, target)
+    return device.session_name if device else config.waha_session
 
 
 async def send_to_target(
@@ -93,7 +99,19 @@ async def send_to_target(
     if not stored.enabled:
         raise SendBlocked(f"'{stored.name}' is paused. Enable it to send.")
 
-    session_name = session_for_target(session, stored)
+    device = device_for_target(session, stored)
+
+    # Telegram is a different transport entirely - bot token, HTTP file upload,
+    # HTML markup - so it branches here rather than pretending to be WAHA.
+    if device is not None and device.platform == Platform.telegram:
+        return await _send_telegram(
+            session, stored, device,
+            text=text, poll_options=poll_options, draft_id=draft_id,
+            asset_path=asset_path, asset_filename=asset_filename,
+            image_path=image_path, send_cover=send_cover,
+        )
+
+    session_name = device.session_name if device else config.waha_session
 
     try:
         if image_path and not asset_path:
@@ -169,6 +187,76 @@ async def send_to_target(
 
     entry = _log_attempt(session, stored, draft_id, status="sent", payload=response)
     log.info("Sent to %s (%s) via session %s", stored.name, stored.chat_id, session_name)
+    return entry
+
+
+async def _send_telegram(
+    session: Session,
+    target: Target,
+    device: Device,
+    *,
+    text: str,
+    poll_options: list[str] | None,
+    draft_id: int | None,
+    asset_path: str | None,
+    asset_filename: str | None,
+    image_path: str | None,
+    send_cover: bool,
+) -> SendLog:
+    """Same contract as the WhatsApp path: send, log, raise on failure."""
+    token = device.bot_token
+    if not token:
+        raise SendBlocked(
+            f"'{device.name}' has no bot token. Re-add it on the Devices tab."
+        )
+
+    try:
+        if poll_options:
+            response = await telegram.send_poll(
+                token, target.chat_id, text.strip(), poll_options
+            )
+        elif asset_path:
+            path = Path(asset_path)
+            if not path.exists():
+                raise SendBlocked(
+                    f"The generated file is missing from disk ({path.name}). Regenerate it."
+                )
+            # Telegram renders a document card with a thumbnail, so a separate
+            # cover image is only worth sending when it carries the caption.
+            if send_cover and image_path and Path(image_path).exists():
+                try:
+                    await telegram.send_photo(
+                        token, target.chat_id, Path(image_path), caption=text
+                    )
+                    text = ""
+                except telegram.TelegramError as exc:
+                    log.warning("Telegram cover failed for %s: %s", target.name, exc.message)
+            response = await telegram.send_document(
+                token, target.chat_id, path, caption=text,
+                filename=asset_filename or path.name,
+            )
+        elif image_path:
+            picture = Path(image_path)
+            if not picture.exists():
+                raise SendBlocked(f"The preview image is missing ({picture.name}).")
+            response = await telegram.send_photo(
+                token, target.chat_id, picture, caption=text
+            )
+        else:
+            response = await telegram.send_text(token, target.chat_id, text)
+    except telegram.TelegramError as exc:
+        _log_attempt(
+            session, target, draft_id, status="failed",
+            payload={"error": exc.message, "hint": exc.hint,
+                     "status_code": exc.status_code, "platform": "telegram"},
+        )
+        # Surfaced to callers as a WahaError so every caller's existing
+        # error handling keeps working across both platforms.
+        raise waha.WahaError(exc.message, status_code=exc.status_code, hint=exc.hint) from exc
+
+    entry = _log_attempt(session, target, draft_id, status="sent", payload=response)
+    log.info("Sent to %s (%s) via Telegram bot %s",
+             target.name, target.chat_id, device.session_name)
     return entry
 
 

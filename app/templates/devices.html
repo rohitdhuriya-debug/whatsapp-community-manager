@@ -6,7 +6,7 @@
   <div>
     <h1 class="text-2xl font-semibold tracking-tight">Devices</h1>
     <p class="text-sm text-muted mt-1">
-      Every linked WhatsApp account. Each one has its own groups and channels.
+      Every linked account — WhatsApp and Telegram. Each has its own groups and channels.
     </p>
   </div>
   <button id="btn-add-device"
@@ -23,20 +23,86 @@
 
 <!-- Add-device panel -->
 <div id="add-panel" class="hidden rounded-2xl border border-accent/30 bg-accent/5 p-6 mt-5">
-  <h2 class="font-semibold">Link a new WhatsApp account</h2>
-  <p class="text-sm text-muted mt-1">
-    Give it a name, then scan the QR from that phone. Turn any VPN off while pairing.
-  </p>
-  <div class="flex items-center gap-2 mt-4">
-    <input id="new-device-name" class="field" placeholder="Work phone">
+  <h2 class="font-semibold">Link a new account</h2>
+
+  <div class="flex gap-2 mt-4">
+    <button data-platform="whatsapp"
+            class="plat-btn chip flex-1 rounded-xl border border-line bg-white p-4 text-left">
+      <span class="block text-sm font-medium">💬 WhatsApp</span>
+      <span class="block text-xs text-muted mt-1">Scan a QR from the phone</span>
+    </button>
+    <button data-platform="telegram"
+            class="plat-btn chip flex-1 rounded-xl border border-line bg-white p-4 text-left">
+      <span class="block text-sm font-medium">✈️ Telegram</span>
+      <span class="block text-xs text-muted mt-1">Paste a bot token</span>
+    </button>
+  </div>
+
+  <label class="block mt-4">
+    <span class="text-sm font-medium">Name</span>
+    <input id="new-device-name" class="field mt-1.5" placeholder="Work phone">
+  </label>
+
+  <div id="tg-fields" class="hidden">
+    <label class="block mt-4">
+      <span class="text-sm font-medium">Bot token</span>
+      <input id="new-bot-token" class="field mt-1.5 font-mono text-[13px]"
+             placeholder="123456789:AAG..." autocomplete="off" spellcheck="false">
+    </label>
+    <details class="mt-3" open>
+      <summary class="text-sm text-accent cursor-pointer hover:underline">
+        How to get a token and connect your group
+      </summary>
+      <ol class="mt-2.5 space-y-1.5 text-sm text-muted list-decimal pl-5">
+        <li>Open <a href="https://t.me/BotFather" target="_blank" rel="noopener"
+            class="text-accent hover:underline">@BotFather</a>, send
+            <code class="bg-white border border-line rounded px-1">/newbot</code>, follow the prompts.</li>
+        <li>Copy the token it gives you and paste it above.</li>
+        <li>In your Telegram group: add the bot as a member.</li>
+        <li>Make it an <strong>admin</strong> with permission to post — bots cannot
+            post to a group where they are only a member.</li>
+        <li>Send any message in the group so it appears in the chat picker.</li>
+      </ol>
+      <p class="text-xs text-muted mt-2.5">
+        The token is stored in <code>app.db</code>, which is git-ignored — it never
+        reaches the public repo.
+      </p>
+    </details>
+  </div>
+
+  <div class="flex items-center gap-2 mt-5">
     <button id="btn-create-device"
-            class="shrink-0 bg-accent text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:bg-accent/90">
-      Create &amp; show QR
+            class="press shrink-0 bg-accent text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:bg-accent/90">
+      Create
     </button>
     <button id="btn-cancel-device"
-            class="shrink-0 text-sm font-medium border border-line bg-white rounded-xl px-4 py-2.5 hover:bg-wash">
+            class="press shrink-0 text-sm font-medium border border-line bg-white rounded-xl px-4 py-2.5 hover:bg-wash">
       Cancel
     </button>
+  </div>
+</div>
+
+<!-- Add a Telegram chat by hand -->
+<div id="tg-chat-modal" class="hidden fixed inset-0 z-50 grid place-items-center p-6"
+     style="background: rgba(17,24,39,.45)">
+  <div class="bg-white rounded-2xl border border-line max-w-md w-full p-6">
+    <h3 class="font-semibold">Add a Telegram chat</h3>
+    <p class="text-sm text-muted mt-1">
+      Telegram bots can't list their own groups, so add it by @username or id.
+      The bot must already be an admin there.
+    </p>
+    <input id="tg-handle" class="field mt-4" placeholder="@mycommunity   or   -1001234567890">
+    <div id="tg-chat-result" class="mt-3"></div>
+    <div class="flex items-center gap-2 mt-4">
+      <button id="tg-chat-add"
+              class="press bg-accent text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:bg-accent/90">
+        Find &amp; add
+      </button>
+      <button id="tg-chat-close"
+              class="press text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash">
+        Close
+      </button>
+    </div>
   </div>
 </div>
 
@@ -93,6 +159,24 @@ const STATUS_STYLES = {
 };
 
 let qrTimer = null;
+let newPlatform = 'whatsapp';
+let tgDeviceId = null;
+
+function setPlatform(p) {
+  newPlatform = p;
+  document.querySelectorAll('.plat-btn').forEach((b) => {
+    const on = b.dataset.platform === p;
+    b.className = `plat-btn chip flex-1 rounded-xl border p-4 text-left ${
+      on ? 'border-accent bg-white ring-1 ring-accent/30' : 'border-line bg-white hover:bg-wash'}`;
+  });
+  document.getElementById('tg-fields').classList.toggle('hidden', p !== 'telegram');
+  document.getElementById('new-device-name').placeholder =
+    p === 'telegram' ? 'Upsurge Telegram' : 'Work phone';
+  document.getElementById('btn-create-device').textContent =
+    p === 'telegram' ? 'Connect bot' : 'Create & show QR';
+}
+document.querySelectorAll('.plat-btn').forEach((b) =>
+  b.addEventListener('click', () => setPlatform(b.dataset.platform)));
 
 async function loadDevices() {
   const host = document.getElementById('device-list');
@@ -106,15 +190,19 @@ async function loadDevices() {
     }
     host.innerHTML = devices.map((d) => {
       const style = STATUS_STYLES[d.status] || 'bg-wash text-muted border-line';
+      const tg = d.platform === 'telegram';
       const identity = d.push_name
-        ? `${escapeHtml(d.push_name)}${d.phone ? ' · +' + escapeHtml(d.phone) : ''}`
-        : 'Not paired yet';
+        ? `${escapeHtml(d.push_name)}${d.phone ? ' · ' + (tg ? '' : '+') + escapeHtml(d.phone) : ''}`
+        : (tg ? 'Bot not responding' : 'Not paired yet');
       return `
       <div class="rounded-2xl border border-line p-5">
         <div class="flex items-start justify-between gap-4">
           <div class="min-w-0">
             <div class="flex items-center gap-2">
+              <span>${tg ? '✈️' : '💬'}</span>
               <span class="font-medium truncate">${escapeHtml(d.name)}</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-wash border border-line text-muted">
+                ${tg ? 'Telegram' : 'WhatsApp'}</span>
               ${d.is_primary ? '<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-wash border border-line text-muted">primary</span>' : ''}
             </div>
             <div class="text-sm text-muted mt-1">${identity}</div>
@@ -132,13 +220,18 @@ async function loadDevices() {
 
         <div class="flex flex-wrap items-center gap-2 mt-4 pt-4 border-t border-line">
           <span class="text-xs text-muted mr-auto">${d.target_count} saved chat${d.target_count === 1 ? '' : 's'}</span>
-          ${d.status !== 'WORKING'
-            ? `<button data-qr="${d.id}" data-name="${escapeHtml(d.name)}"
-                 class="text-sm font-medium bg-accent text-white rounded-xl px-3.5 py-2 hover:bg-accent/90">Show QR</button>`
-            : `<a href="/compose?device=${d.id}"
-                 class="text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Compose from this</a>`}
-          <button data-restart="${d.id}"
-                  class="text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Restart</button>
+          ${tg
+            ? `<button data-tgchat="${d.id}"
+                 class="press text-sm font-medium bg-accent text-white rounded-xl px-3.5 py-2 hover:bg-accent/90">Add a chat</button>
+               <a href="/compose?device=${d.id}"
+                 class="press text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Compose from this</a>`
+            : (d.status !== 'WORKING'
+              ? `<button data-qr="${d.id}" data-name="${escapeHtml(d.name)}"
+                   class="press text-sm font-medium bg-accent text-white rounded-xl px-3.5 py-2 hover:bg-accent/90">Show QR</button>`
+              : `<a href="/compose?device=${d.id}"
+                   class="press text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Compose from this</a>`)}
+          ${tg ? '' : `<button data-restart="${d.id}"
+                  class="press text-sm font-medium border border-line rounded-xl px-3.5 py-2 hover:bg-wash">Restart</button>`}
           ${d.is_primary ? '' :
             `<button data-del="${d.id}" class="text-sm font-medium text-danger border border-danger/20 rounded-xl px-3.5 py-2 hover:bg-danger/5">Remove</button>`}
         </div>
@@ -147,6 +240,8 @@ async function loadDevices() {
 
     host.querySelectorAll('[data-qr]').forEach((b) =>
       b.addEventListener('click', () => showQr(b.dataset.qr, b.dataset.name)));
+    host.querySelectorAll('[data-tgchat]').forEach((b) =>
+      b.addEventListener('click', () => openTgChat(Number(b.dataset.tgchat))));
     host.querySelectorAll('[data-restart]').forEach((b) =>
       b.addEventListener('click', async () => {
         b.disabled = true; b.textContent = 'Restarting…';
@@ -230,27 +325,76 @@ document.getElementById('qr-close').addEventListener('click', () => {
   loadDevices();
 });
 
-document.getElementById('btn-add-device').addEventListener('click', () =>
-  document.getElementById('add-panel').classList.remove('hidden'));
+document.getElementById('btn-add-device').addEventListener('click', () => {
+  document.getElementById('add-panel').classList.remove('hidden');
+  setPlatform(newPlatform);
+});
 document.getElementById('btn-cancel-device').addEventListener('click', () =>
   document.getElementById('add-panel').classList.add('hidden'));
 
 document.getElementById('btn-create-device').addEventListener('click', async (e) => {
   const name = document.getElementById('new-device-name').value.trim();
-  if (!name) { showBanner('Give the device a name.'); return; }
-  e.target.disabled = true; e.target.textContent = 'Creating…';
+  if (!name) { showBanner('Give it a name.'); return; }
+
+  const body = { name, platform: newPlatform };
+  if (newPlatform === 'telegram') {
+    body.bot_token = document.getElementById('new-bot-token').value.trim();
+    if (!body.bot_token) { showBanner('Paste the bot token from @BotFather.'); return; }
+  }
+
+  const label = e.target.textContent;
+  e.target.disabled = true; e.target.textContent = 'Connecting…';
   try {
-    const device = await api.post('/api/devices', { name });
+    const device = await api.post('/api/devices', body);
     document.getElementById('add-panel').classList.add('hidden');
     document.getElementById('new-device-name').value = '';
-    // Open the QR straight away. The endpoint waits for the session to be
-    // ready itself, so there is no point guessing a delay here - and a guessed
-    // delay was leaving the session running with nobody keeping it alive.
-    showQr(device.id, device.name);
+    document.getElementById('new-bot-token').value = '';
+
+    if (newPlatform === 'telegram') {
+      showBanner(`Connected ${device.username ? '@' + device.username : device.name}. Add its chats next.`, 'success');
+    } else {
+      // Open the QR straight away. The endpoint waits for the session to be
+      // ready itself, so there is no point guessing a delay here - and a guessed
+      // delay was leaving the session running with nobody keeping it alive.
+      showQr(device.id, device.name);
+    }
     loadDevices();
     loadHealth();
   } catch (err) { showBanner(err.message); }
-  finally { e.target.disabled = false; e.target.textContent = 'Create & show QR'; }
+  finally { e.target.disabled = false; e.target.textContent = label; }
+});
+
+/* ── Telegram: add a chat by hand ───────────────────────────────────────── */
+
+function openTgChat(deviceId) {
+  tgDeviceId = deviceId;
+  document.getElementById('tg-handle').value = '';
+  document.getElementById('tg-chat-result').innerHTML = '';
+  document.getElementById('tg-chat-modal').classList.remove('hidden');
+}
+document.getElementById('tg-chat-close').addEventListener('click', () =>
+  document.getElementById('tg-chat-modal').classList.add('hidden'));
+
+document.getElementById('tg-chat-add').addEventListener('click', async (e) => {
+  const handle = document.getElementById('tg-handle').value.trim();
+  const out = document.getElementById('tg-chat-result');
+  if (!handle) { showBanner('Enter a @username or chat id.'); return; }
+  e.target.disabled = true;
+  out.innerHTML = '<span class="text-sm text-muted">Looking it up…</span>';
+  try {
+    const chat = await api.post(`/api/devices/${tgDeviceId}/telegram/resolve`, { handle });
+    await api.post('/api/targets/ensure', {
+      chats: [{ chat_id: chat.id, name: chat.name,
+                type: chat.chat_type === 'channel' ? 'channel' : 'supergroup',
+                device_id: tgDeviceId }],
+    });
+    out.innerHTML = `<div class="rounded-xl border border-ok/20 bg-ok/5 px-4 py-3 text-sm text-ok">
+      Added <strong>${escapeHtml(chat.name)}</strong> — it's now in the Compose picker.</div>`;
+    loadDevices();
+  } catch (err) {
+    out.innerHTML = `<div class="rounded-xl border border-danger/20 bg-danger/5 px-4 py-3 text-sm text-danger">
+      ${escapeHtml(err.message)}</div>`;
+  } finally { e.target.disabled = false; }
 });
 
 /* ── WAHA bridge health, so its own UI is never needed ──────────────────── */
@@ -309,6 +453,7 @@ async function loadHealth() {
   }
 }
 
+setPlatform('whatsapp');
 loadHealth();
 loadDevices();
 setInterval(() => {

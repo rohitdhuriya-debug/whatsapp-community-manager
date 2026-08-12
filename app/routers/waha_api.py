@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..db import get_session
-from ..models import Device, Target
+from ..models import Device, Platform, Target
 from ..services import waha
 
 router = APIRouter(prefix="/api/waha", tags=["waha"])
@@ -77,10 +77,35 @@ async def all_chats(
     device_id: int | None = None, session: Session = Depends(get_session)
 ) -> dict[str, Any]:
     """Groups and channels in one call - what the Composer picker needs."""
-    name = _session_name(session, device_id)
     saved = {t.chat_id for t in session.exec(select(Target)).all()}
 
-    result: dict[str, Any] = {"groups": [], "channels": [], "errors": []}
+    device = session.get(Device, device_id) if device_id is not None else None
+    if device is not None and device.platform == Platform.telegram:
+        from ..services import telegram
+
+        result: dict[str, Any] = {"groups": [], "channels": [], "errors": [],
+                                  "platform": "telegram"}
+        try:
+            chats = await telegram.discover_chats(device.bot_token)
+        except telegram.TelegramError as exc:
+            result["errors"].append(f"{exc.message} {exc.hint}".strip())
+            return result
+
+        for chat in _mark_saved(chats, saved):
+            bucket = "channels" if chat["chat_type"] == "channel" else "groups"
+            result[bucket].append(chat)
+
+        if not chats:
+            result["errors"].append(
+                "Telegram bots cannot list their groups. Send any message in the "
+                "group (or re-add the bot) so it appears here, or add it by "
+                "@username on the Devices tab."
+            )
+        return result
+
+    name = _session_name(session, device_id)
+
+    result = {"groups": [], "channels": [], "errors": [], "platform": "whatsapp"}
     try:
         result["groups"] = _mark_saved(await waha.list_groups(name), saved)
     except waha.WahaError as exc:

@@ -17,8 +17,8 @@ from sqlmodel import Session, select
 
 from ..config import config
 from ..db import get_session
-from ..models import Device, Target
-from ..services import waha
+from ..models import Device, Platform, Target
+from ..services import telegram, waha
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +28,12 @@ router = APIRouter(prefix="/api/devices", tags=["devices"])
 class DeviceIn(BaseModel):
     name: str
     session_name: str | None = None  # derived from the name when omitted
+    platform: Platform = Platform.whatsapp
+    bot_token: str = ""              # Telegram only
+
+
+class TelegramChatIn(BaseModel):
+    handle: str                      # @username, t.me link, or numeric id
 
 
 class DevicePatch(BaseModel):
@@ -230,6 +236,28 @@ async def list_devices(session: Session = Depends(get_session)) -> list[dict[str
 
     out = []
     for device in devices:
+        if device.platform == Platform.telegram:
+            info = await telegram.check(device.bot_token)
+            if info["ok"] and info.get("name") and device.push_name != info["name"]:
+                device.push_name = info["name"]
+                session.add(device)
+                session.commit()
+            out.append({
+                "id": device.id,
+                "name": device.name,
+                "platform": "telegram",
+                "session_name": device.session_name,
+                "is_primary": device.is_primary,
+                "phone": f"@{info.get('username', '')}" if info.get("username") else "",
+                "push_name": device.push_name,
+                "target_count": counts.get(device.id, 0),
+                "status": info["status"],
+                "ok": info["ok"],
+                "error": info["error"],
+                "hint": info["hint"],
+            })
+            continue
+
         status = await waha.session_status(device.session_name)
 
         # Keep the cached identity fresh once a device pairs.
@@ -247,6 +275,7 @@ async def list_devices(session: Session = Depends(get_session)) -> list[dict[str
             {
                 "id": device.id,
                 "name": device.name,
+                "platform": "whatsapp",
                 "session_name": device.session_name,
                 "is_primary": device.is_primary,
                 "phone": device.phone,
@@ -269,6 +298,36 @@ async def create_device(
     if not name:
         raise HTTPException(status_code=400, detail="Give the device a name.")
 
+    if payload.platform == Platform.telegram:
+        token = payload.bot_token.strip()
+        if not token:
+            raise HTTPException(
+                status_code=400,
+                detail="Paste the bot token from @BotFather.",
+            )
+        # Validate before storing, so a bad token never becomes a broken device.
+        info = await telegram.check(token)
+        if not info["ok"]:
+            raise HTTPException(
+                status_code=400, detail=f"{info['error']} {info.get('hint','')}".strip()
+            )
+
+        handle = info.get("username") or _slug(name)
+        session_name = _unique_session_name(session, f"tg-{handle}")
+        device = Device(
+            name=name,
+            platform=Platform.telegram,
+            session_name=session_name,
+            bot_token=token,
+            push_name=info.get("name") or "",
+        )
+        session.add(device)
+        session.commit()
+        session.refresh(device)
+        return {"id": device.id, "name": device.name,
+                "session_name": device.session_name, "platform": "telegram",
+                "username": info.get("username", "")}
+
     session_name = _unique_session_name(
         session, _slug(payload.session_name or name)
     )
@@ -284,7 +343,8 @@ async def create_device(
     session.add(device)
     session.commit()
     session.refresh(device)
-    return {"id": device.id, "name": device.name, "session_name": device.session_name}
+    return {"id": device.id, "name": device.name,
+            "session_name": device.session_name, "platform": "whatsapp"}
 
 
 @router.patch("/{device_id}")
@@ -361,6 +421,25 @@ async def device_qr(device_id: int, session: Session = Depends(get_session)) -> 
         ) from exc
     return Response(content=png, media_type="image/png",
                     headers={"Cache-Control": "no-store"})
+
+
+@router.post("/{device_id}/telegram/resolve")
+async def resolve_telegram_chat(
+    device_id: int, payload: TelegramChatIn, session: Session = Depends(get_session)
+) -> dict[str, Any]:
+    """Look up a Telegram chat by @username or id, so it can be added by hand.
+
+    Needed because the Bot API has no way to list the chats a bot belongs to.
+    """
+    device = _get_or_404(session, device_id)
+    if device.platform != Platform.telegram:
+        raise HTTPException(status_code=400, detail="That device is not a Telegram bot.")
+    try:
+        return await telegram.resolve_chat(device.bot_token, payload.handle)
+    except telegram.TelegramError as exc:
+        raise HTTPException(
+            status_code=400, detail=f"{exc.message} {exc.hint}".strip()
+        ) from exc
 
 
 @router.get("/{device_id}/pair-state")

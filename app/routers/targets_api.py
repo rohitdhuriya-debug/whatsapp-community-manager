@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,8 +29,26 @@ GROUP_SUFFIX = "@g.us"
 CHANNEL_SUFFIX = "@newsletter"
 
 
+TELEGRAM_ID = re.compile(r"^-?\d{5,}$")
+
+
+def is_telegram_chat(chat_id: str) -> bool:
+    """Telegram chat ids are bare numbers; WhatsApp ids always carry a suffix."""
+    return bool(TELEGRAM_ID.fullmatch(chat_id.strip()))
+
+
 def _validate_chat_id(chat_id: str, target_type: TargetType) -> str:
     chat_id = chat_id.strip()
+
+    # Telegram: a numeric id, and any of group / supergroup / channel is valid.
+    if is_telegram_chat(chat_id):
+        return chat_id
+
+    if target_type == TargetType.supergroup:
+        raise ValueError(
+            f"'supergroup' is a Telegram type, but '{chat_id}' is not a Telegram chat id."
+        )
+
     expected = GROUP_SUFFIX if target_type == TargetType.group else CHANNEL_SUFFIX
     if not chat_id.endswith(expected):
         raise ValueError(
@@ -191,9 +210,12 @@ def ensure_targets(
                         "chat_id": existing.chat_id, "created": False})
             continue
 
-        kind = chat.type or (
-            TargetType.channel if chat_id.endswith(CHANNEL_SUFFIX) else TargetType.group
-        )
+        if chat.type is not None:
+            kind = chat.type
+        elif chat_id.endswith(CHANNEL_SUFFIX):
+            kind = TargetType.channel
+        else:
+            kind = TargetType.group
         try:
             validated = _validate_chat_id(chat_id, kind)
         except ValueError as exc:

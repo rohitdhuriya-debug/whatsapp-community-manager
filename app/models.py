@@ -13,9 +13,17 @@ from sqlmodel import Field, SQLModel
 from .util import utcnow
 
 
+class Platform(str, Enum):
+    whatsapp = "whatsapp"
+    telegram = "telegram"
+
+
 class TargetType(str, Enum):
     group = "group"       # community announcement group -> chat_id ends @g.us
     channel = "channel"   # WhatsApp channel            -> chat_id ends @newsletter
+    # Telegram equivalents. A supergroup is what a "community" becomes once it
+    # grows, and Telegram treats channels separately just as WhatsApp does.
+    supergroup = "supergroup"
 
 
 class Language(str, Enum):
@@ -71,9 +79,17 @@ class Device(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)                      # "My WhatsApp", "Work phone"
-    session_name: str = Field(index=True, unique=True)  # WAHA session id
+    platform: Platform = Field(default=Platform.whatsapp, index=True)
+
+    # WhatsApp: the WAHA session id. Telegram: the bot's @username, kept here
+    # so the column stays unique and human-readable across both.
+    session_name: str = Field(index=True, unique=True)
     phone: str = ""                                     # filled in once paired
-    push_name: str = ""                                 # WhatsApp profile name
+    push_name: str = ""                                 # profile / bot display name
+
+    # Telegram only. Stored in the git-ignored app.db, never in the repo.
+    bot_token: str = ""
+
     is_primary: bool = False
     created_at: datetime = Field(default_factory=utcnow)
 

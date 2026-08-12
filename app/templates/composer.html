@@ -66,7 +66,7 @@ e.g. A checklist of 10 free AI tools for Indian founders, with pricing and when 
     <label class="block">
       <span class="text-sm font-medium">Deliver as</span>
       <select id="output-type" class="field mt-1.5">
-        <option value="message">WhatsApp message</option>
+        <option value="message">Text message</option>
         <option value="poll">Poll</option>
         <option value="pdf">PDF resource</option>
         <option value="excel">Excel sheet</option>
@@ -263,6 +263,7 @@ const EXAMPLES = [
 const state = {
   deviceId: null,
   kind: 'groups',
+  platform: 'whatsapp',
   chats: { groups: [], channels: [] },
   picked: new Map(),
   campaignId: null,
@@ -293,6 +294,7 @@ async function loadDevices() {
               class="chip flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm
               ${d.id === state.deviceId ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
         <span class="h-1.5 w-1.5 rounded-full ${d.ok ? 'bg-ok' : 'bg-amber-400'}"></span>
+        <span>${d.platform === 'telegram' ? '✈️' : '💬'}</span>
         <span>${escapeHtml(d.name)}</span>
       </button>`).join('');
 
@@ -316,6 +318,7 @@ async function loadChats(force) {
   try {
     const data = await api.get(`/api/waha/chats?device_id=${state.deviceId}`);
     state.chats = { groups: data.groups || [], channels: data.channels || [] };
+    state.platform = data.platform || 'whatsapp';
     if (data.errors?.length) showBanner(data.errors.join(' · '));
     renderChats();
   } catch (err) {
@@ -340,7 +343,11 @@ function renderChats() {
 
   if (!shown.length) {
     host.innerHTML = `<div class="px-4 py-8 text-center text-sm text-muted">
-      ${items.length ? 'Nothing matches that filter.' : 'None found on this account.'}</div>`;
+      ${items.length ? 'Nothing matches that filter.'
+        : (state.platform === 'telegram'
+            ? `No Telegram ${state.kind} found yet. Send a message in the group so the bot
+               sees it, or add it by @username on <a href="/devices" class="text-accent hover:underline">Devices</a>.`
+            : 'None found on this account.')}</div>`;
     return;
   }
 

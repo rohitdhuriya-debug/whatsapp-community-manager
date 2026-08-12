@@ -63,6 +63,40 @@ Both share the same send gate, approval queue, scheduler and log.
 Claude Code runs the local CLI headlessly, sandboxed in an empty directory with all tools
 disabled — a pure generator that cannot read your files or run commands.
 
+## Telegram
+
+Telegram communities run through the same Compose and Autopilot flow as WhatsApp — same
+brief, same engines, same PDFs and sheets, same scheduling. Only the connection differs.
+
+**Setup:** Devices → *Link a device* → **Telegram**.
+
+1. [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token
+2. Paste it in and press **Connect bot** — the token is verified against Telegram before
+   it is saved, so a bad one never becomes a broken device
+3. Add the bot to your group, and make it an **admin** with permission to post. A bot that
+   is only a member cannot post.
+4. Send any message in the group so it appears in the chat picker
+
+**Bots cannot list their own groups.** The Bot API has no `getChats`, so this app finds
+them two ways: it reads recent updates (which include the event fired when the bot is added
+to a group), and it lets you add one directly by `@username` or numeric id via *Add a chat*.
+Anything Telegram itself cannot tell us, no app can.
+
+| | WhatsApp | Telegram |
+|---|---|---|
+| Connect | scan a QR | paste a bot token |
+| Find groups | full list, automatic | recent updates + add by @username |
+| Message | `*bold*` markup | converted to HTML on send |
+| PDF / Excel | file, or link for channels | file, direct |
+| Poll | ✅ | ✅ |
+| Limits | — | 4096 chars/message, 1024/caption |
+
+Drafts are written in WhatsApp style (`*bold*`, `_italic_`); those are converted to Telegram
+HTML on the way out, with the text escaped first so a stray `<` in the copy cannot break the
+message.
+
+The bot token lives in `app.db`, which is git-ignored — it never reaches the public repo.
+
 ## Multiple devices
 
 Link more than one WhatsApp number on the **Devices** tab: *Link a device* → name it → scan
