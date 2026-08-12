@@ -19,6 +19,25 @@
   <link rel="icon" type="image/png" href="/static/img/upsurge-icon.png">
   <link rel="apple-touch-icon" href="/static/img/upsurge-icon.png">
 
+  <script>
+    /* Show the splash once per browsing session, not on every navigation.
+       This is a multi-page app, so each tab click is a fresh document and
+       would otherwise replay it.
+
+       Runs in <head>, before the body paints, so a repeat visit never flashes
+       the splash. sessionStorage (not localStorage) is deliberate: it clears
+       when the browser session ends, so opening the site fresh shows it again.
+       With JS unavailable the splash simply plays as before and still fades
+       itself out. */
+    try {
+      if (sessionStorage.getItem('upsurge:splash') === '1') {
+        document.documentElement.className += ' splash-seen';
+      } else {
+        sessionStorage.setItem('upsurge:splash', '1');
+      }
+    } catch (e) { /* private mode - fall through and just show it */ }
+  </script>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -147,6 +166,9 @@
        their tracks. The implicit rows still stretched to fill the viewport
        (align-content defaults to stretch), which pushed the mark, the word and
        the bar a third of the screen apart. */
+    /* Already seen this session: never render it, so there is no flash. */
+    html.splash-seen #splash { display: none !important; }
+
     #splash {
       position: fixed;
       inset: 0;
