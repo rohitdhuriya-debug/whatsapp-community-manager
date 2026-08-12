@@ -6,7 +6,9 @@ extra phones cost nothing.
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -17,6 +19,8 @@ from ..config import config
 from ..db import get_session
 from ..models import Device, Target
 from ..services import waha
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/devices", tags=["devices"])
 
@@ -29,6 +33,76 @@ class DeviceIn(BaseModel):
 class DevicePatch(BaseModel):
     name: str | None = None
     is_primary: bool | None = None
+
+
+# ---------------------------------------------------------------------------
+# Pairing keep-alive
+#
+# WAHA/Baileys issues a fixed run of QR codes and then force-stops the session
+# ("QR refs attempts ended"). Observed here: a session died 59s after creation
+# because nothing was asking it for a QR. Reacting only when the browser next
+# requests an image is too late and too fragile - a backgrounded tab, a slow
+# network or a closed laptop lid all break it.
+#
+# So while a device is being paired, the server keeps its own timer and revives
+# the session itself. Asking for a QR extends the window; pairing or the window
+# lapsing ends it.
+# ---------------------------------------------------------------------------
+
+PAIRING_WINDOW_SECONDS = 600      # how long a "Show QR" keeps a session alive
+PAIRING_CHECK_SECONDS = 8
+
+_pairing_until: dict[str, float] = {}
+_pairing_tasks: dict[str, "asyncio.Task[None]"] = {}
+
+
+def _keep_pairing_alive(session_name: str) -> None:
+    """Extend the pairing window, starting the watcher if it is not running."""
+    import asyncio
+
+    _pairing_until[session_name] = time.monotonic() + PAIRING_WINDOW_SECONDS
+
+    task = _pairing_tasks.get(session_name)
+    if task is not None and not task.done():
+        return
+
+    async def watch() -> None:
+        try:
+            while time.monotonic() < _pairing_until.get(session_name, 0):
+                await asyncio.sleep(PAIRING_CHECK_SECONDS)
+                state = await waha.session_status(session_name)
+                status = state["status"]
+
+                if status == waha.STATUS_WORKING:
+                    log.info("Device %s paired; ending keep-alive.", session_name)
+                    break
+                if status in (waha.STATUS_SCAN_QR, waha.STATUS_STARTING):
+                    continue
+
+                # Force-stopped, failed, or vanished - bring it back so the
+                # next QR the user looks at is a live one.
+                log.info("Reviving %s during pairing (was %s).", session_name, status)
+                try:
+                    if status == "NOT_CREATED":
+                        await waha.create_session(session_name, start=True)
+                    else:
+                        await waha.restart_session(session_name)
+                except waha.WahaError as exc:
+                    log.warning("Could not revive %s: %s", session_name, exc.message)
+        except Exception:
+            log.exception("Pairing keep-alive failed for %s", session_name)
+        finally:
+            _pairing_until.pop(session_name, None)
+            _pairing_tasks.pop(session_name, None)
+
+    _pairing_tasks[session_name] = asyncio.create_task(watch())
+
+
+def _stop_pairing(session_name: str) -> None:
+    _pairing_until.pop(session_name, None)
+    task = _pairing_tasks.pop(session_name, None)
+    if task is not None and not task.done():
+        task.cancel()
 
 
 def _slug(text: str) -> str:
@@ -243,6 +317,11 @@ async def device_qr(device_id: int, session: Session = Depends(get_session)) -> 
     import asyncio
 
     device = _get_or_404(session, device_id)
+
+    # Looking at the QR is what says "I am pairing right now", so it also
+    # renews the window that keeps the session from being force-stopped.
+    _keep_pairing_alive(device.session_name)
+
     state = await waha.session_status(device.session_name)
 
     if state["status"] != waha.STATUS_SCAN_QR:
@@ -265,6 +344,7 @@ async def device_qr(device_id: int, session: Session = Depends(get_session)) -> 
                 break
 
         if state["status"] == waha.STATUS_WORKING:
+            _stop_pairing(device.session_name)
             raise HTTPException(status_code=409, detail="This device is already linked.")
         if state["status"] != waha.STATUS_SCAN_QR:
             raise HTTPException(
@@ -281,6 +361,24 @@ async def device_qr(device_id: int, session: Session = Depends(get_session)) -> 
         ) from exc
     return Response(content=png, media_type="image/png",
                     headers={"Cache-Control": "no-store"})
+
+
+@router.get("/{device_id}/pair-state")
+async def pair_state(device_id: int, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """Status plus how long the server will keep reviving this session."""
+    device = _get_or_404(session, device_id)
+    state = await waha.session_status(device.session_name)
+
+    if state["ok"]:
+        _stop_pairing(device.session_name)
+
+    remaining = _pairing_until.get(device.session_name, 0) - time.monotonic()
+    return {
+        **state,
+        "device_id": device.id,
+        "device_name": device.name,
+        "keepalive_seconds": max(0, int(remaining)),
+    }
 
 
 @router.post("/{device_id}/restart")

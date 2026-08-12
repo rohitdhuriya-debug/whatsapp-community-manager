@@ -65,9 +65,22 @@ disabled — a pure generator that cannot read your files or run commands.
 
 ## Multiple devices
 
-Link more than one WhatsApp account on the Devices tab. Each is a separate WAHA session in
-the same free container, with its own QR, its own groups and channels, and its own chats to
-pick from. A chat can only ever be sent from the account it belongs to.
+Link more than one WhatsApp number on the **Devices** tab: *Link a device* → name it → scan
+the QR from that phone. Each is a separate WAHA session in the same free container, with its
+own groups and channels. A chat can only ever be sent from the account it belongs to.
+
+**Pairing keeps itself alive.** WAHA issues a fixed run of QR codes and then force-stops the
+session — logged as `QR refs attempts ended`. In practice a session died 59 seconds after
+being created, long before anyone could fetch their phone and scan, and every later QR
+request failed against a dead session.
+
+While a device is pairing, the server now holds its own 10-minute window and revives the
+session itself, independently of the browser. A backgrounded tab, a flaky network or a slow
+scan can no longer strand it. Measured: after force-stopping a pairing session with nothing
+polling it, it was back in `SCAN_QR_CODE` **7ms** after the stop landed.
+
+Worth knowing: this WAHA build reports `tier: CORE` but contains no session limit, so
+multiple numbers work on the free image.
 
 ---
 
@@ -407,8 +420,8 @@ OpenAPI spec. Run it after upgrading the WAHA image.
 | Empty research results | Loosen the research instructions — very narrow queries return nothing |
 | Claude Code says "not logged in" | Run `claude` in a terminal, then `/login` |
 | Claude Code rejects the model | Pick haiku / sonnet / opus in Compose |
-| Phone says "couldn't link device" | The QR expired. WAHA issues ~2 minutes of codes then force-stops the session (`QR refs attempts ended`). The dashboard now restarts it automatically and shows a fresh code — just keep the QR window open |
-| A device shows `FAILED` | Same cause. Reopen its QR; it self-heals |
+| Phone says "couldn't link device" | Turn VPN off on both the phone and the Mac. WhatsApp also allows only 4 linked devices per number — remove an old one first |
+| A device shows `FAILED` or `STOPPED` | Open its QR; the session is revived automatically |
 | Leftover sessions in WAHA | Devices tab lists any session with no device record and offers to remove it |
 | Asset shows `Rs.` not `₹` | Deliberate — no available font has the rupee glyph |
 | "Channels cannot receive file attachments" | Correct — WhatsApp limitation. Send files to groups |

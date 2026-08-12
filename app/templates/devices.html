@@ -43,24 +43,37 @@
 <!-- QR modal -->
 <div id="qr-modal" class="hidden fixed inset-0 z-50 grid place-items-center p-6"
      style="background: rgba(17,24,39,.45)">
-  <div class="bg-white rounded-2xl border border-line max-w-sm w-full p-6 text-center">
-    <h3 class="font-semibold" id="qr-title">Scan to link</h3>
-    <p class="text-sm text-muted mt-1">
-      WhatsApp → Settings → Linked devices → Link a device
-    </p>
-    <div class="mt-5 grid place-items-center min-h-[280px]" id="qr-holder">
-      <span class="text-sm text-muted">Loading QR…</span>
+  <div class="bg-white rounded-2xl border border-line max-w-md w-full p-6 text-center">
+    <h3 class="font-semibold text-lg" id="qr-title">Scan to link</h3>
+
+    <ol class="mt-3 text-left text-sm text-muted space-y-1 max-w-[300px] mx-auto">
+      <li>1 &nbsp;Open WhatsApp on the phone you want to link</li>
+      <li>2 &nbsp;Settings → <strong class="text-ink">Linked devices</strong></li>
+      <li>3 &nbsp;Tap <strong class="text-ink">Link a device</strong> and scan this</li>
+    </ol>
+
+    <div class="mt-4 grid place-items-center min-h-[300px]" id="qr-holder">
+      <span class="text-sm text-muted">Getting your code…</span>
     </div>
-    <p class="text-xs text-muted mt-3" id="qr-status">Waiting for scan…</p>
-    <div class="mt-4 text-left rounded-xl border border-line bg-wash px-4 py-3">
-      <div class="text-xs font-medium text-ink">If WhatsApp says “couldn't link device”</div>
-      <ul class="text-xs text-muted mt-1.5 space-y-1 list-disc pl-4">
+
+    <div class="mt-3 flex items-center justify-center gap-2 text-xs">
+      <span id="qr-dot" class="h-2 w-2 rounded-full bg-amber-400"></span>
+      <span id="qr-status" class="text-muted">Waiting for scan…</span>
+    </div>
+    <p class="text-[11px] text-muted mt-1.5" id="qr-keepalive"></p>
+
+    <details class="mt-4 text-left rounded-xl border border-line bg-wash px-4 py-3">
+      <summary class="text-xs font-medium text-ink cursor-pointer">
+        WhatsApp says “couldn't link device”?
+      </summary>
+      <ul class="text-xs text-muted mt-2 space-y-1 list-disc pl-4">
         <li>Turn any VPN off on the phone <em>and</em> this Mac, then retry</li>
-        <li>WhatsApp allows only 4 linked devices — remove an old one first</li>
-        <li>The code refreshes automatically; scan the one on screen now</li>
-        <li>Still stuck? Press <strong>Restart</strong> on the device and reopen this</li>
+        <li>WhatsApp allows 4 linked devices per number — remove an old one first</li>
+        <li>To link a <strong>different number</strong>, use that phone, not this one</li>
+        <li>The code refreshes by itself — always scan the one currently on screen</li>
       </ul>
-    </div>
+    </details>
+
     <button id="qr-close"
             class="mt-4 w-full text-sm font-medium border border-line rounded-xl px-4 py-2.5 hover:bg-wash">
       Close
@@ -161,32 +174,43 @@ async function showQr(deviceId, name) {
   modal.classList.remove('hidden');
   holder.innerHTML = '<span class="text-sm text-muted">Loading QR…</span>';
 
+  const dot = document.getElementById('qr-dot');
+  const keepalive = document.getElementById('qr-keepalive');
+
   async function refresh() {
     try {
-      const state = await api.get(`/api/waha/status?device_id=${deviceId}`);
+      const state = await api.get(`/api/devices/${deviceId}/pair-state`);
+
       if (state.ok) {
-        holder.innerHTML = '<div class="text-ok font-medium text-lg">Linked ✓</div>';
-        status.textContent = 'Paired successfully.';
+        holder.innerHTML = `<div class="grid place-items-center gap-2">
+            <div class="text-4xl">✅</div>
+            <div class="text-ok font-medium text-lg">Linked</div>
+            ${state.push_name ? `<div class="text-sm text-muted">${escapeHtml(state.push_name)}</div>` : ''}
+            ${state.phone ? `<div class="text-sm text-muted">+${escapeHtml(state.phone)}</div>` : ''}
+          </div>`;
+        dot.className = 'h-2 w-2 rounded-full bg-ok';
+        status.textContent = 'Paired successfully — its chats are ready in Compose.';
+        keepalive.textContent = '';
         clearInterval(qrTimer);
         loadDevices();
         loadHealth();
         return;
       }
 
-      // WAHA force-stops the session once its QR attempts run out; the /qr
-      // endpoint restarts it, so a stale code never becomes a dead end.
-      status.textContent = state.status === 'FAILED' || state.status === 'STOPPED'
-        ? 'Code expired — generating a fresh one…'
-        : `Status: ${state.status} · code refreshes automatically`;
+      dot.className = 'h-2 w-2 rounded-full bg-amber-400';
+      status.textContent = state.status === 'SCAN_QR_CODE'
+        ? 'Waiting for you to scan…'
+        : `${state.status} — preparing a fresh code…`;
+      keepalive.textContent = state.keepalive_seconds
+        ? `This code is kept alive for another ${Math.ceil(state.keepalive_seconds / 60)} min. Leave this open.`
+        : '';
 
+      // Swap only once the new image has decoded, so the QR never blanks out
+      // mid-scan and leave the old one on screen if a refresh fails.
       const img = new Image();
-      img.className = 'w-64 h-64 object-contain';
-      img.alt = 'QR code';
-      img.onload = () => { holder.innerHTML = ''; holder.appendChild(img); };
-      img.onerror = () => {
-        holder.innerHTML =
-          '<span class="text-sm text-muted">Getting a fresh code…</span>';
-      };
+      img.className = 'w-72 h-72 object-contain';
+      img.alt = 'WhatsApp pairing QR code';
+      img.onload = () => { holder.replaceChildren(img); };
       img.src = `/api/devices/${deviceId}/qr?t=${Date.now()}`;
     } catch (err) {
       status.textContent = err.message;
@@ -195,8 +219,9 @@ async function showQr(deviceId, name) {
 
   await refresh();
   clearInterval(qrTimer);
-  // Faster than WAHA's ~20s rotation, so the code on screen is always current.
-  qrTimer = setInterval(refresh, 8000);
+  // WAHA rotates roughly every 20s; poll well inside that so what is on screen
+  // is always current, and so the server keeps renewing the pairing window.
+  qrTimer = setInterval(refresh, 5000);
 }
 
 document.getElementById('qr-close').addEventListener('click', () => {
@@ -218,8 +243,12 @@ document.getElementById('btn-create-device').addEventListener('click', async (e)
     const device = await api.post('/api/devices', { name });
     document.getElementById('add-panel').classList.add('hidden');
     document.getElementById('new-device-name').value = '';
-    await loadDevices();
-    setTimeout(() => showQr(device.id, device.name), 1500);
+    // Open the QR straight away. The endpoint waits for the session to be
+    // ready itself, so there is no point guessing a delay here - and a guessed
+    // delay was leaving the session running with nobody keeping it alive.
+    showQr(device.id, device.name);
+    loadDevices();
+    loadHealth();
   } catch (err) { showBanner(err.message); }
   finally { e.target.disabled = false; e.target.textContent = 'Create & show QR'; }
 });
