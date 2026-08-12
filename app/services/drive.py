@@ -49,8 +49,13 @@ class DriveError(RuntimeError):
 
 
 def redirect_uri() -> str:
-    """Must match a redirect URI on the OAuth client exactly."""
-    return f"http://localhost:{config.app_port}/api/drive/oauth/callback"
+    """Must match a redirect URI on the OAuth client exactly.
+
+    Follows PUBLIC_URL when the app is behind a tunnel: Google redirects the
+    browser here, and a localhost address only resolves on the machine running
+    the app - useless when connecting Drive from a phone.
+    """
+    return f"{config.base_url}/api/drive/oauth/callback"
 
 
 # ---------------------------------------------------------------------------

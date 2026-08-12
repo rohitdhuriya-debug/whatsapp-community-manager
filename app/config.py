@@ -34,6 +34,7 @@ class Config:
     timezone: str
     default_model: str
     bearer_token: str
+    public_url: str
 
     @property
     def tz(self) -> ZoneInfo:
@@ -48,6 +49,11 @@ class Config:
     @property
     def waha_ready(self) -> bool:
         return bool(self.waha_api_key) and self.waha_api_key != "change-me-to-a-long-random-string"
+
+    @property
+    def base_url(self) -> str:
+        """Where this app is reachable from a browser."""
+        return self.public_url or f"http://localhost:{self.app_port}"
 
     @property
     def db_path(self) -> Path:
@@ -74,6 +80,10 @@ def get_config() -> Config:
         ).strip(),
         # Empty = auth disabled, which is the default for this single-user app (HC-6).
         bearer_token=os.getenv("APP_BEARER_TOKEN", "").strip(),
+        # Set when reachable through a tunnel. Anything that has to hand out an
+        # absolute URL - the Google OAuth redirect above all - must use this,
+        # or it points at a localhost that only exists on this Mac.
+        public_url=os.getenv("PUBLIC_URL", "").strip().rstrip("/"),
     )
 
 

@@ -318,22 +318,50 @@ never published.
 
 ---
 
-## Access from anywhere (optional, still free)
-
-TryCloudflare gives you a temporary public URL with no account:
+## Access from anywhere
 
 ```bash
-brew install cloudflared
-cloudflared tunnel --url http://localhost:8080
+./start_public.command
 ```
 
-It prints a `https://<random>.trycloudflare.com` URL. Approve drafts from your phone.
+That starts Docker, WAHA, the dashboard, and a Cloudflare tunnel, then prints and opens a
+public HTTPS link. Use it from your phone or any browser.
 
-> **Never tunnel port 3000.** That is WAHA, and it controls your live WhatsApp account.
-> Only ever expose 8080, and only while you need it.
+It exports `PUBLIC_URL` for you, so absolute links — the Google Drive OAuth redirect above
+all — point at the tunnel instead of a `localhost` that only exists on the Mac.
 
-If you expose the dashboard, set `APP_BEARER_TOKEN` in `.env` first — otherwise anyone with
-the URL can send to your communities.
+**Only port 8080 is tunnelled.** Port 3000 is WAHA, which holds your live WhatsApp session;
+it stays bound to loopback and has no route through the tunnel. Never expose it.
+
+Things worth knowing:
+
+- **The link has no login.** Anyone who has it can post to your communities, and delete
+  targets. Treat it like a password: don't paste it into group chats, screenshots or
+  issues. To lock it down later, set `APP_BEARER_TOKEN` in `.env` (protects `/api/*`), or
+  put Cloudflare Access in front of the tunnel.
+- **The URL changes every run.** TryCloudflare hands out a random hostname each time. For a
+  stable address you need a Cloudflare account and a named tunnel on your own domain.
+- **The Mac must stay awake and online.** Close the terminal window, sleep the Mac, or lose
+  wifi and the link dies. `caffeinate -s ./start_public.command` keeps it from sleeping.
+- **Drive OAuth through the tunnel:** add the tunnel's callback URL to your Google OAuth
+  client's authorised redirect URIs, or connect Drive while on `localhost` instead.
+
+For local-only use, `./start_all.command` is unchanged.
+
+## Working on it
+
+The repo lives at
+[rohitdhuriya-debug/whatsapp-community-manager](https://github.com/rohitdhuriya-debug/whatsapp-community-manager).
+
+The public link serves the app **running on this Mac**, so any code change is live as soon
+as the app restarts — there is no build or deploy step. The loop is:
+
+1. Ask for a change in Claude Code
+2. It edits the files here and pushes to GitHub
+3. Restart the app (`Ctrl+C`, then `./start_public.command`) and the link serves it
+
+`.env`, `app.db`, `waha-sessions/` and `assets/` are git-ignored, so no keys, no WhatsApp
+pairing and no generated content ever reach the public repo.
 
 ---
 
