@@ -143,35 +143,44 @@
     /* ── Opening splash ───────────────────────────────────────────────────
        Driven entirely by CSS so it clears itself even if JS never runs - a
        splash that can get stuck is worse than no splash. */
+    /* Flex column, not grid: `place-items: center` only centres items inside
+       their tracks. The implicit rows still stretched to fill the viewport
+       (align-content defaults to stretch), which pushed the mark, the word and
+       the bar a third of the screen apart. */
     #splash {
       position: fixed;
       inset: 0;
       z-index: 60;
-      display: grid;
-      place-items: center;
-      gap: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       background: #FFFFFF;
-      animation: splashOut 1s var(--ease) 0.55s forwards;
+      animation: splashOut 900ms var(--ease) 0.5s forwards;
     }
     #splash .mark {
-      animation: markIn 520ms var(--ease) both, float 2.4s ease-in-out 520ms infinite;
-      filter: drop-shadow(0 10px 22px rgba(79, 70, 229, .28));
+      animation: markIn 520ms var(--ease) both, float 2.6s ease-in-out 520ms infinite;
+      filter: drop-shadow(0 6px 16px rgba(59, 69, 206, .18));
       will-change: transform;
     }
     #splash .word {
-      grid-row: 2;
-      animation: wordIn 520ms var(--ease) 140ms both;
-      letter-spacing: -0.01em;
+      margin-top: 13px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: .015em;
+      color: #111827;
+      animation: wordIn 460ms var(--ease) 130ms both;
     }
     #splash .bar {
-      grid-row: 3;
-      width: 132px; height: 2px; border-radius: 2px;
-      background: #E5E7EB; overflow: hidden;
+      margin-top: 12px;
+      width: 84px; height: 1.5px; border-radius: 999px;
+      background: #ECEDF1; overflow: hidden;
+      animation: wordIn 460ms var(--ease) 200ms both;
     }
     #splash .bar::after {
       content: ""; display: block; height: 100%; width: 100%;
-      background: #4F46E5; transform-origin: left;
-      animation: fill 1.1s var(--ease) both;
+      background: #3B45CE; transform-origin: left;
+      animation: fill 1.05s var(--ease) both;
     }
 
     @keyframes markIn {
@@ -210,7 +219,7 @@
 <body class="bg-white text-ink font-sans">
 
 <div id="splash">
-  <div class="mark">{{ logo_mark(72) }}</div>
+  <div class="mark">{{ logo_mark(56) }}</div>
   <div class="word text-[17px] font-semibold">Upsurge</div>
   <div class="bar"></div>
 </div>
