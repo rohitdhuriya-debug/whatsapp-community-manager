@@ -14,6 +14,12 @@ sent, picks a fresh topic and a format, writes it, and delivers.
 **Setup is one box.** Describe the community — who they are, what they already know, what
 they want. That text is the whole brief; everything else is picked per run.
 
+**It posts today's news, not evergreen filler.** Each run is handed the dated headlines from
+the Trending feeds and told to build the post on one of them. Headlines already used are
+filtered out *before* the model sees them, and the story id is remembered alongside the
+topic — so the same event cannot come back tomorrow reworded. If nothing recent suits the
+community it says so and falls back to a general brief, rather than inventing an anniversary.
+
 **Different every time, enforced twice.** A prompt asking a model not to repeat itself is
 not a guarantee, so:
 
@@ -56,9 +62,14 @@ Both share the same send gate, approval queue, scheduler and log.
 A `/news` tab that answers one question: something happened — what does it mean for India,
 and for Indian markets?
 
-Four feeds ship by default — geopolitics, Indian markets, global macro, stocks in the news —
-and you can add your own. They refresh **hourly** on the scheduler and the page re-polls
-every **30 minutes**, so it is current without a reload.
+Five feeds ship by default — geopolitics, Indian markets, global macro, stocks in the news,
+and **AI** — and you can add your own. They refresh **hourly** on the scheduler and the page
+re-polls every **30 minutes**, so it is current without a reload.
+
+There is a **search box** at the top for anything the standing feeds don't cover — a company,
+a country, a technology. It queries the live wire rather than filtering what is already
+stored, so it reaches past the feeds entirely; results get the same *What does this mean?*
+and *Post about this* buttons.
 
 - **Recent only.** Headlines are asked for with a 24-hour window and re-checked against their
   real publish date, so the feed is sorted by when the story broke, not by when the app
@@ -76,27 +87,56 @@ recent; the app trims over-long queries automatically, but a 5-word query is bet
 
 ## Approve from your phone
 
-Every campaign picks where it is signed off:
+Sign-off is decided **per chat**, on the target's own page — a channel can require a phone
+sign-off while a test group posts straight from the dashboard. A campaign can override
+everything ("Here, in the dashboard" / "On WhatsApp"), but the default, *However each chat is
+set*, respects each one. Autopilot has its own setting, separate from any target.
 
 | | **Approve in dashboard** | **Approve on WhatsApp** |
 |---|---|---|
 | Where | The browser | Your own WhatsApp |
 | Flow | Generate → review → Send | Generate → draft arrives on your phone → reply |
+| Best for | Sends you are watching | Autopilot, and anything scheduled |
 
-With **Approve on WhatsApp**, the finished draft is sent to your own number with a 4-character
-code. Reply `approve` (or `approve A7K2`, `ok`, `yes`, `haan`) and it goes out to the
-communities; reply `reject` and it is discarded. You get a receipt either way —
-`✅ Sent to 3 chats`.
+With **Approve on WhatsApp**, the draft is sent to your own number with a 4-character code.
+Reply `approve` (or `approve A7K2`, `ok`, `yes`, `haan`) and it goes out; reply `reject` and
+it is discarded. You get a receipt either way — `✅ Sent to 3 chats`.
 
 - Set the destination under **Settings → Approve on WhatsApp**. Left empty it uses the linked
   phone's own number, which needs no setup.
-- Only replies *newer than the request* count, so an old "ok" sitting in the chat can never
-  release anything.
+- Each request covers **only its own chat**. Approving the channel cannot release a draft for
+  a group that was set to sign off in the dashboard.
+- The code is optional when one approval is outstanding and **required when several are**, so
+  a bare "ok" can never release the wrong one.
+- Only replies *newer than the request* count, so an old "ok" in the chat releases nothing.
 - Unanswered requests expire after 12 hours rather than firing days later.
 - Replies are found by polling that one chat every 12s, and only while something is actually
   waiting — WAHA runs in Docker, so a webhook would need container-to-host networking.
 - If the approval message itself fails to send, the draft is still saved. A failed
   notification never loses your work.
+
+## Channel covers
+
+WhatsApp channels don't render document attachments, and a bare link gets scraped into
+whatever card the destination happens to expose — a Drive spreadsheet link came out as a
+blurry *"Loading Google Sheets"* tile. So **every channel post leads with a generated cover
+image**: a media message cannot carry a preview card at all, which both looks deliberate and
+suppresses the scraped one.
+
+Covers are **content-driven, not one repeated template**:
+
+- The **layout** follows the shape of the post — a prominent number gets the *stat*
+  treatment, several short points get the *numbered list*, an aphorism gets the *quote*
+  card, everything else gets the *hero*.
+- The **palette** is derived from the text itself, and skips the last two used, so the same
+  post always renders identically while consecutive posts never look alike.
+- Headline, highlight phrase, chips, stat and CTA are all read out of the generated content.
+
+Drawn with reportlab and rasterised by pymupdf — both already dependencies, so this costs
+nothing and needs no new install. Output is 1080×1350 (4:5), the largest shape WhatsApp
+shows without cropping. Toggle it per send in the Composer; it only appears when a channel
+is selected. If generation ever fails it falls back to page one of the PDF, then to no
+image — a cover is a nicety and never costs the post.
 
 ## Two engines, switchable per send
 

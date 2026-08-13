@@ -129,6 +129,18 @@
            class="h-5 w-5 rounded border-line text-accent focus:ring-accent/30">
   </label>
 
+  <label class="block mt-4">
+    <span class="text-sm font-medium">Approve where?</span>
+    <select id="f-approval-mode" class="field mt-1.5">
+      <option value="dashboard">Here, in the dashboard</option>
+      <option value="whatsapp">On WhatsApp — reply to approve</option>
+    </select>
+    <span class="block text-xs text-muted mt-1.5">
+      Set per chat. On WhatsApp, this chat's draft is sent to your own number and
+      only goes out when you reply <code class="bg-wash border border-line rounded px-1">approve</code>.
+    </span>
+  </label>
+
   <div class="mt-4">
     <span class="text-sm font-medium">Schedule</span>
     <select id="f-schedule" class="field mt-1.5">
@@ -342,6 +354,7 @@ document.getElementById('btn-save').addEventListener('click', async (e) => {
       banned_topics: document.getElementById('f-banned').value.trim(),
       cta_link: document.getElementById('f-cta').value.trim(),
       approval_required: document.getElementById('f-approval').checked,
+      approval_mode: document.getElementById('f-approval-mode').value,
       enabled: true,
     });
 

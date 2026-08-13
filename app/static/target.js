@@ -134,6 +134,7 @@ document.getElementById('btn-save-persona').addEventListener('click', async (e) 
       model_override: document.getElementById('p-model').value || null,
       disclaimer_mode: document.getElementById('p-disclaimer').value,
       approval_required: document.getElementById('p-approval').checked,
+      approval_mode: document.getElementById('p-approval-mode').value,
     });
     const flag = document.getElementById('persona-saved');
     flag.classList.remove('hidden');

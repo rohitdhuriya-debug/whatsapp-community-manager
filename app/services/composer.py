@@ -27,7 +27,7 @@ from ..models import (
     Target,
 )
 from ..util import utcnow
-from . import assets, drive, engines, research, sender
+from . import assets, cover, drive, engines, research, sender
 from .pipeline import MAX_CHARS, parse_poll, sanitize
 
 log = logging.getLogger(__name__)
@@ -246,15 +246,73 @@ def _link_label(output: OutputType) -> str:
     return "Free PDF" if output == OutputType.pdf else "Download the sheet"
 
 
-def _build_cover(asset_path: str) -> str:
-    """Page one as a PNG on disk, used as the channel post's image."""
-    cover = assets.cover_image(Path(asset_path))
-    if not cover:
-        return ""
-    png, name = cover
-    path = assets.ASSET_DIR / name
-    path.write_bytes(png)
-    return str(path)
+def _recent_palettes(session: Session, limit: int = 2) -> list[str]:
+    """Palettes of the last few covers, so consecutive posts differ."""
+    rows = session.exec(
+        select(Draft.image_path)
+        .where(Draft.image_path.is_not(None))
+        .order_by(Draft.id.desc())
+        .limit(limit * 3)
+    ).all()
+    out: list[str] = []
+    for path in rows:
+        for name in cover.PALETTES:
+            if path and f"-{name}-" in str(path) and name not in out:
+                out.append(name)
+    return out[:limit]
+
+
+def _build_cover(
+    campaign: Campaign,
+    content: str,
+    *,
+    payload: dict[str, Any] | None = None,
+    asset_path: str | None = None,
+    has_link: bool = False,
+    session: Session | None = None,
+) -> str:
+    """A designed cover PNG on disk, used as the channel post's image.
+
+    Content-driven, so two posts do not come out looking like the same picture:
+    the layout follows the shape of the text and the palette is derived from it.
+    Falls back to page one of the PDF, and then to nothing - a cover is a
+    nicety, and must never cost the post.
+    """
+    try:
+        spec = cover.spec_from_content(
+            content,
+            brand=campaign.name or "",
+            badge=_cover_badge(campaign.output_type),
+            payload=payload,
+            has_link=has_link,
+            avoid_palettes=_recent_palettes(session) if session is not None else [],
+        )
+        palette = spec.palette or cover.pick_palette(
+            f"{spec.headline}|{spec.body}|{spec.quote}", spec.avoid_palettes
+        )
+        spec.palette = palette
+        stem = f"{assets.slugify(campaign.name or 'post', 'post')[:36]}-{palette}"
+        path, _name = cover.build_cover(spec, stem=stem)
+        return str(path)
+    except Exception as exc:
+        log.warning("Cover generation failed, falling back: %s", exc)
+
+    if asset_path:
+        rendered = assets.cover_image(Path(asset_path))
+        if rendered:
+            png, name = rendered
+            path = assets.ASSET_DIR / name
+            path.write_bytes(png)
+            return str(path)
+    return ""
+
+
+def _cover_badge(output: OutputType) -> str:
+    return {
+        OutputType.pdf: "Free PDF",
+        OutputType.excel: "Free sheet",
+        OutputType.poll: "Your take",
+    }.get(output, "New")
 
 
 def _fallback_caption(campaign: Campaign, payload: dict[str, Any], kind: str) -> str:
@@ -295,6 +353,9 @@ async def run_campaign(
     output = campaign.output_type
     asset_path = asset_name = asset_mime = None
     poll_options = None
+    # Only the pdf/excel branches produce one; the cover builder reads it for
+    # a title and chips, so it must exist for message and poll runs too.
+    payload: dict[str, Any] = {}
 
     phase("drafting")
     try:
@@ -355,7 +416,6 @@ async def run_campaign(
     cover_path = ""
 
     if asset_path and channels:
-        cover_path = _build_cover(asset_path)
         phase("building", "Uploading to Google Drive…")
         try:
             uploaded = await drive.upload_asset(
@@ -370,11 +430,22 @@ async def run_campaign(
             drive_error = str(exc)
             log.warning("Drive upload failed: %s", exc)
 
+    # Every channel post leads with a cover, whether or not it carries a file.
+    # Without one WhatsApp scrapes any link in the text and draws its own card -
+    # a Drive spreadsheet link renders as a blurry "Loading Google Sheets" tile.
+    # Built after the upload so the CTA can reflect whether a link exists.
+    if channels and campaign.generate_cover:
+        phase("building", "Designing the cover image…")
+        cover_path = _build_cover(
+            campaign, content, payload=payload, asset_path=asset_path,
+            has_link=bool(drive_link), session=session,
+        )
+
     drafts: list[Draft] = []
     for target in targets:
         to_channel = is_channel(target.chat_id)
 
-        if asset_path and to_channel:
+        if to_channel and (asset_path or cover_path):
             # Image + caption-with-link. No document attached.
             body = content
             if drive_link:

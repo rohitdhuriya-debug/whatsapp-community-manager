@@ -73,6 +73,8 @@ class TargetIn(BaseModel):
     model_override: str | None = None
     disclaimer_mode: Literal["auto", "always", "never"] = "auto"
     approval_required: bool = True
+    # "dashboard" | "whatsapp" - where this chat's drafts get signed off.
+    approval_mode: str = "dashboard"
     enabled: bool = True
 
     @field_validator("model_override")
@@ -100,6 +102,7 @@ class TargetPatch(BaseModel):
     model_override: str | None = None
     disclaimer_mode: Literal["auto", "always", "never"] | None = None
     approval_required: bool | None = None
+    approval_mode: str | None = None
     enabled: bool | None = None
 
     @field_validator("model_override")
@@ -182,6 +185,9 @@ class ChatRef(BaseModel):
     name: str = ""
     type: TargetType | None = None
     device_id: int | None = None
+    # Set when ticking chats in the Composer, so a channel can be created
+    # already requiring a phone sign-off.
+    approval_mode: str | None = None
 
 
 class EnsureTargets(BaseModel):
@@ -207,7 +213,8 @@ def ensure_targets(
         existing = session.exec(select(Target).where(Target.chat_id == chat_id)).first()
         if existing:
             out.append({"id": existing.id, "name": existing.name,
-                        "chat_id": existing.chat_id, "created": False})
+                        "chat_id": existing.chat_id,
+                        "approval_mode": existing.approval_mode, "created": False})
             continue
 
         if chat.type is not None:
@@ -221,17 +228,20 @@ def ensure_targets(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+        mode = (chat.approval_mode or "").strip()
         target = Target(
             name=chat.name.strip() or validated,
             type=kind,
             chat_id=validated,
             device_id=chat.device_id,
+            approval_mode=mode if mode in ("dashboard", "whatsapp") else "dashboard",
         )
         session.add(target)
         session.commit()
         session.refresh(target)
         out.append({"id": target.id, "name": target.name,
-                    "chat_id": target.chat_id, "created": True})
+                    "chat_id": target.chat_id,
+                    "approval_mode": target.approval_mode, "created": True})
     return out
 
 
@@ -314,6 +324,10 @@ def delete_target(target_id: int, session: Session = Depends(get_session)) -> No
     session.exec(delete(Draft).where(Draft.target_id == target_id))
     session.exec(delete(CampaignTarget).where(CampaignTarget.target_id == target_id))
     session.exec(delete(Schedule).where(Schedule.target_id == target_id))
+    # Approvals now carry a target_id, so they must go before the target.
+    from ..models import ApprovalRequest
+
+    session.exec(delete(ApprovalRequest).where(ApprovalRequest.target_id == target_id))
     session.exec(delete(Target).where(Target.id == target_id))
     session.commit()
 

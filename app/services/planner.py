@@ -128,6 +128,7 @@ def pick_format(plan_format: str, autopilot: Autopilot) -> str:
 
 
 PLAN_SCHEMA = """{
+  "headline_id": 0,
   "topic": "the specific thing to post about today, one sentence",
   "angle": "what makes this worth reading - the hook or the takeaway",
   "format": "message | pdf | excel | poll",
@@ -140,6 +141,7 @@ def _build_messages(
     campaign: Campaign,
     items: list[dict[str, Any]],
     exclude: list[str],
+    headlines: str = "",
 ) -> list[dict[str, str]]:
     history = (autopilot.recent_topics or [])[:HISTORY_SHOWN]
     allowed = (
@@ -161,6 +163,14 @@ def _build_messages(
         "- Vary the shape of what you send. A community that gets the same format every",
         "  day stops opening it.",
         "- Prefer specifics: a named tool, a real number, a dated event, a concrete task.",
+        *([
+            "",
+            "TODAY'S HEADLINES ARE THE SOURCE. You are given real, dated headlines from",
+            "the last day. Build the post on ONE of them and put its number in",
+            "`headline_id`. Do not write an evergreen explainer - the community can read",
+            "those anywhere. If genuinely none of them suit this community, set",
+            "`headline_id` to 0 and say why in `why`.",
+        ] if headlines else []),
         "",
         "AVAILABLE FORMATS:",
         *[f"- {f}: {FORMAT_HINTS[f]}" for f in allowed],
@@ -181,7 +191,11 @@ def _build_messages(
     if autopilot.recent_formats:
         parts.append(f"Recent formats used (newest first): {', '.join(autopilot.recent_formats[:5])}")
 
-    if items:
+    if headlines:
+        # Dated headlines beat a generic web search, so when they exist they
+        # replace it outright rather than competing with it in the prompt.
+        parts.append("TODAY'S HEADLINES — pick one:\n" + headlines)
+    elif items:
         parts.append(
             "Fresh sources from the web today (use if genuinely relevant):\n"
             + research.format_for_prompt(items)
@@ -209,16 +223,32 @@ async def plan(
     on_note: Any = None,
 ) -> dict[str, Any]:
     """Decide today's topic and format. Retries once if it repeats itself."""
-    items: list[dict[str, Any]] = []
-    if campaign.use_research:
-        query = autopilot.context or campaign.brief or "news"
-        items = await research.research(query, "news")
+    from . import news
 
     history = autopilot.recent_topics or []
+
+    # Real, dated headlines are what stop this posting evergreen filler. Ones
+    # already used are dropped BEFORE the model sees them - filtering after the
+    # fact burns a second model call and then proceeds anyway.
+    used_ids = set(autopilot.recent_news_ids or [])
+    candidates = [
+        item for item in news.fresh_headlines(session, limit=14)
+        if item.id not in used_ids and not is_repeat(item.title, history)
+    ][:12]
+    by_id = {item.id: item for item in candidates}
+    headlines = news.format_for_planner(candidates) if candidates else ""
+
+    items: list[dict[str, Any]] = []
+    if campaign.use_research and not headlines:
+        # Fallback only. Keep the query short: Google News ANDs every term, and
+        # autopilot.context is a prose paragraph that matches nothing.
+        source = autopilot.context or campaign.brief or "news"
+        items = await research.research(" ".join(source.split()[:8]), "news")
+
     exclude: list[str] = []
 
     for attempt in (1, 2):
-        messages = _build_messages(autopilot, campaign, items, exclude)
+        messages = _build_messages(autopilot, campaign, items, exclude, headlines)
         try:
             data, label = await engines.generate_json(
                 session,
@@ -248,15 +278,28 @@ async def plan(
             # skipping the day's post entirely.
             log.warning("Proceeding with a topic similar to %r", clash[:60])
 
+        try:
+            headline_id = int(data.get("headline_id") or 0)
+        except (TypeError, ValueError):
+            headline_id = 0
+        chosen = by_id.get(headline_id)
+
         return {
             "topic": topic,
             "angle": str(data.get("angle") or "").strip(),
             "format": chosen_format,
             "why": str(data.get("why") or "").strip(),
             "repeat_warning": clash or "",
-            "sources": len(items),
+            "sources": len(items) or len(candidates),
             "model_used": label,
             "research": items,
+            # New keys only - everything above is read by name in autopilot.py,
+            # autopilot_api.py and autopilot.html.
+            "headline_id": chosen.id if chosen else 0,
+            "headline": chosen.title if chosen else "",
+            "headline_url": chosen.url if chosen else "",
+            "headline_source": chosen.source if chosen else "",
+            "headlines_offered": len(candidates),
         }
 
     raise PlannerError("Planning failed.")
@@ -267,11 +310,24 @@ def brief_from_plan(plan_result: dict[str, Any]) -> str:
     parts = [plan_result["topic"]]
     if plan_result.get("angle"):
         parts.append(f"Angle: {plan_result['angle']}")
+    if plan_result.get("headline"):
+        # Composed by hand rather than via news.brief_for_composer, which
+        # appends a markets disclaimer that does not belong on every community.
+        parts.append(f"This is about a real story published today: {plan_result['headline']}")
+        if plan_result.get("headline_source"):
+            parts.append(f"Source: {plan_result['headline_source']}")
+        parts.append("Lead with what actually happened, then why it matters to them.")
     return "\n".join(parts)
 
 
 def remember(autopilot: Autopilot, plan_result: dict[str, Any]) -> None:
     """Record what went out so the next run can avoid it."""
+    if plan_result.get("headline_id"):
+        # Remember the story, not just the wording: a second post about the
+        # same headline phrased differently would slip past the similarity check.
+        ids = [int(plan_result["headline_id"]), *(autopilot.recent_news_ids or [])]
+        autopilot.recent_news_ids = list(dict.fromkeys(ids))[:60]
+
     topics = [plan_result["topic"], *(autopilot.recent_topics or [])]
     autopilot.recent_topics = topics[:HISTORY_CHECKED]
 

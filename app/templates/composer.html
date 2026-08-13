@@ -115,11 +115,22 @@ e.g. A checklist of 10 free AI tools for Indian founders, with pricing and when 
              class="h-4 w-4 rounded border-line text-accent focus:ring-accent/30">
       <span>Preview image with files</span>
     </label>
+    <label class="flex items-center gap-2 text-sm hidden" id="gen-cover-row">
+      <input type="checkbox" id="gen-cover" checked
+             class="h-4 w-4 rounded border-line text-accent focus:ring-accent/30">
+      <span>Design a cover image for channels</span>
+    </label>
   </div>
+  <p class="text-xs text-muted mt-1.5 hidden" id="gen-cover-hint">
+    Channels can't show file attachments, and a bare link gets scraped into whatever
+    card the destination exposes. A cover replaces that with something designed.
+  </p>
 
   <div class="mt-4">
     <span class="text-sm font-medium">Approve where?</span>
     <div class="flex flex-wrap gap-2 mt-2" id="approval-choice">
+      <button data-approval="per_target"
+              class="appr-btn chip text-sm border rounded-xl px-4 py-2">However each chat is set</button>
       <button data-approval="dashboard"
               class="appr-btn chip text-sm border rounded-xl px-4 py-2">Here, in the dashboard</button>
       <button data-approval="whatsapp"
@@ -275,7 +286,7 @@ const state = {
   deviceId: null,
   kind: 'groups',
   platform: 'whatsapp',
-  approval: 'dashboard',
+  approval: 'per_target',
   chats: { groups: [], channels: [] },
   picked: new Map(),
   campaignId: null,
@@ -407,6 +418,11 @@ function renderPicked() {
     b.addEventListener('click', () => {
       state.picked.delete(b.dataset.unpick); renderChats(); renderPicked();
     }));
+
+  // The cover only applies to channels, so the control only appears for them.
+  const hasChannel = [...state.picked.values()].some((c) => c.type === 'channel');
+  $('gen-cover-row').classList.toggle('hidden', !hasChannel);
+  $('gen-cover-hint').classList.toggle('hidden', !hasChannel);
 }
 
 document.querySelectorAll('.kind-btn').forEach((btn) =>
@@ -465,9 +481,11 @@ function setApproval(mode) {
     b.className = `appr-btn chip text-sm border rounded-xl px-4 py-2 ${
       on ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}`;
   });
-  $('approval-hint').textContent = mode === 'whatsapp'
-    ? 'The draft goes to your own WhatsApp number first. Reply "approve <code>" there and it goes out to the communities.'
-    : 'Review and send from the preview below.';
+  $('approval-hint').textContent = {
+    whatsapp: 'Every draft goes to your own WhatsApp number first. Reply "approve <code>" there and it goes out.',
+    dashboard: 'Review and send from the preview below.',
+    per_target: 'Each chat uses its own setting, from its target page. Channels can need a phone sign-off while a test group does not.',
+  }[mode] || '';
 }
 document.querySelectorAll('.appr-btn').forEach((b) =>
   b.addEventListener('click', () => setApproval(b.dataset.approval)));
@@ -536,6 +554,7 @@ async function generate() {
       use_research: $('use-research').checked,
       send_cover_image: $('send-cover').checked,
       approval_mode: state.approval,
+      generate_cover: $('gen-cover').checked,
       target_ids: targets.map((t) => t.id),
     };
     const campaign = state.campaignId
@@ -851,7 +870,7 @@ try {
   }
 } catch (e) { /* private mode */ }
 
-setApproval('dashboard');
+setApproval('per_target');
 setRepeat('once');
 loadDevices();
 loadEngines();

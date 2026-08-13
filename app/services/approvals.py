@@ -88,13 +88,33 @@ def set_approval_chat(session: Session, value: str) -> None:
     set_setting(session, CHAT_SETTING, value.strip())
 
 
+def resolve_mode(campaign: Campaign | None, target: Target) -> str:
+    """Where THIS chat's draft gets signed off.
+
+    The campaign can force one mode for everything; "per_target" (the default)
+    hands the decision to the chat itself, so a channel can need a phone
+    sign-off while a test group does not.
+    """
+    forced = (getattr(campaign, "approval_mode", "") or "per_target").strip()
+    if forced in ("dashboard", "whatsapp"):
+        return forced
+    mode = (getattr(target, "approval_mode", "") or "dashboard").strip()
+    return mode if mode in ("dashboard", "whatsapp") else "dashboard"
+
+
 # ---------------------------------------------------------------------------
 # Raising a request
 # ---------------------------------------------------------------------------
 
 
-def _summary(session: Session, campaign: Campaign, drafts: list[Draft]) -> str:
-    targets = composer.campaign_targets(session, campaign.id)
+def _summary(
+    session: Session, campaign: Campaign, drafts: list[Draft],
+    targets: list[Target] | None = None,
+) -> str:
+    # Must be the targets this request actually covers - naming every target in
+    # the campaign would promise sends that this approval does not control.
+    if targets is None:
+        targets = composer.campaign_targets(session, campaign.id)
     names = ", ".join(t.name for t in targets[:4])
     if len(targets) > 4:
         names += f" +{len(targets) - 4} more"
@@ -111,8 +131,15 @@ def _summary(session: Session, campaign: Campaign, drafts: list[Draft]) -> str:
     return "\n".join(lines)
 
 
-async def request(session: Session, campaign: Campaign, drafts: list[Draft]) -> dict[str, Any]:
-    """Send the draft to your number and wait for a reply."""
+async def request(
+    session: Session, campaign: Campaign, drafts: list[Draft],
+    target: Target | None = None,
+) -> dict[str, Any]:
+    """Send the draft to your number and wait for a reply.
+
+    Scoped to one target when given, so a campaign spanning chats with
+    different approval modes releases only what was actually approved.
+    """
     destination = approval_chat(session)
     if destination is None:
         raise RuntimeError(
@@ -124,7 +151,7 @@ async def request(session: Session, campaign: Campaign, drafts: list[Draft]) -> 
     draft = drafts[0] if drafts else None
 
     body = (
-        f"{_summary(session, campaign, drafts)}\n"
+        f"{_summary(session, campaign, drafts, [target] if target else None)}\n"
         f"{'─' * 18}\n\n"
         f"{(draft.content if draft else '')}\n\n"
         f"{'─' * 18}\n"
@@ -149,6 +176,7 @@ async def request(session: Session, campaign: Campaign, drafts: list[Draft]) -> 
     row = ApprovalRequest(
         campaign_id=campaign.id, code=code, chat_id=chat_id,
         session_name=session_name, sent_ts=sent_ts,
+        target_id=target.id if target else None,
     )
     session.add(row)
     session.commit()
@@ -164,8 +192,12 @@ async def request(session: Session, campaign: Campaign, drafts: list[Draft]) -> 
 # ---------------------------------------------------------------------------
 
 
-def _match(body: str, code: str) -> str | None:
-    """'approved' / 'rejected' / None for one message body."""
+def _match(body: str, code: str, *, require_code: bool = False) -> str | None:
+    """'approved' / 'rejected' / None for one message body.
+
+    `require_code` when more than one approval is outstanding: a bare "ok"
+    would otherwise release whichever request happened to be checked first.
+    """
     text = (body or "").strip()
     if not text:
         return None
@@ -175,15 +207,19 @@ def _match(body: str, code: str) -> str | None:
         if not found:
             continue
         typed = (found.group(2) or "").upper()
-        # A bare "approve" is fine when it is the only thing outstanding; the
-        # caller only passes codes it is actually waiting on.
-        if typed and typed != code.upper():
+        if not typed:
+            if require_code:
+                continue
+            return verdict
+        if typed != code.upper():
             continue
         return verdict
     return None
 
 
-async def _check_one(session: Session, row: ApprovalRequest) -> bool:
+async def _check_one(
+    session: Session, row: ApprovalRequest, *, outstanding: int = 1
+) -> bool:
     """Look for a verdict. Returns True if resolved."""
     try:
         messages = await waha.fetch_messages(
@@ -199,7 +235,8 @@ async def _check_one(session: Session, row: ApprovalRequest) -> bool:
         timestamp = message.get("timestamp") or 0
         if not isinstance(timestamp, (int, float)) or int(timestamp) <= row.sent_ts:
             continue
-        verdict = _match(str(message.get("body") or ""), row.code)
+        verdict = _match(str(message.get("body") or ""), row.code,
+                         require_code=outstanding > 1)
         if verdict is None:
             continue
 
@@ -207,7 +244,7 @@ async def _check_one(session: Session, row: ApprovalRequest) -> bool:
         if verdict == "approved":
             await _release(session, row)
         else:
-            _discard(session, row)
+            await _discard(session, row)
         return True
 
     # Do not let an unanswered request hang around for ever.
@@ -222,13 +259,23 @@ async def _check_one(session: Session, row: ApprovalRequest) -> bool:
     return False
 
 
+def _covered(session: Session, row: ApprovalRequest) -> list[Draft]:
+    """The pending drafts this approval controls, and only those.
+
+    Filtering on campaign alone would let approving one chat release drafts for
+    a target that was set to sign off in the dashboard.
+    """
+    stmt = select(Draft).where(
+        Draft.campaign_id == row.campaign_id, Draft.status == DraftStatus.pending
+    )
+    if row.target_id is not None:
+        stmt = stmt.where(Draft.target_id == row.target_id)
+    return list(session.exec(stmt).all())
+
+
 async def _release(session: Session, row: ApprovalRequest) -> None:
     """Approved: send to the communities, then report back in the chat."""
-    drafts = session.exec(
-        select(Draft).where(
-            Draft.campaign_id == row.campaign_id, Draft.status == DraftStatus.pending
-        )
-    ).all()
+    drafts = _covered(session, row)
 
     sent, failed = 0, []
     for draft in drafts:
@@ -264,12 +311,13 @@ async def _release(session: Session, row: ApprovalRequest) -> None:
         pass  # the send itself already happened; the receipt is a nicety
 
 
-def _discard(session: Session, row: ApprovalRequest) -> None:
-    for draft in session.exec(
-        select(Draft).where(
-            Draft.campaign_id == row.campaign_id, Draft.status == DraftStatus.pending
-        )
-    ).all():
+async def _discard(session: Session, row: ApprovalRequest) -> None:
+    """Rejected: mark the covered drafts and say so.
+
+    Async, matching _release: the receipt used to be fired off with
+    create_task, which needs a running loop and swallowed any error it hit.
+    """
+    for draft in _covered(session, row):
         draft.status = DraftStatus.rejected
         session.add(draft)
 
@@ -278,7 +326,7 @@ def _discard(session: Session, row: ApprovalRequest) -> None:
     session.add(row)
     session.commit()
 
-    asyncio.create_task(_say(row, "🗑️ Discarded. Nothing was sent."))
+    await _say(row, "🗑️ Discarded. Nothing was sent.")
 
 
 async def _say(row: ApprovalRequest, text: str) -> None:
@@ -313,7 +361,7 @@ async def _loop() -> None:
                     return
                 for row in rows:
                     try:
-                        await _check_one(session, row)
+                        await _check_one(session, row, outstanding=len(rows))
                     except Exception:
                         log.exception("Approval %s check failed", row.code)
     except asyncio.CancelledError:

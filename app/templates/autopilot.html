@@ -93,6 +93,18 @@
     </label>
   </div>
 
+  <label class="block mt-4">
+    <span class="text-sm font-medium">Approve where?</span>
+    <select id="f-approval-mode" class="field mt-1.5">
+      <option value="dashboard">Here, in the dashboard</option>
+      <option value="whatsapp">On WhatsApp — reply to approve</option>
+    </select>
+    <span class="block text-xs text-muted mt-1.5">
+      Autopilot fires on its own, so WhatsApp is usually the useful one — otherwise
+      the draft waits in the browser until you open it.
+    </span>
+  </label>
+
   <div class="flex items-center gap-3 mt-6">
     <button id="btn-save"
             class="press bg-accent text-white text-sm font-medium rounded-xl px-5 py-2.5 hover:bg-accent/90">
@@ -216,6 +228,7 @@ $('btn-save').addEventListener('click', async (e) => {
       format_mode: st.mode,
       formats: [...document.querySelectorAll('.fmt:checked')].map((c) => c.value),
       approval_required: $('f-approval').value === 'true',
+      approval_mode: $('f-approval-mode').value,
     };
     if (targetIds) body.target_ids = targetIds;
 
@@ -447,6 +460,7 @@ function wire(rows) {
       $('f-language').value = p.language;
       $('f-engine').value = p.engine;
       $('f-approval').value = String(p.approval_required);
+      $('f-approval-mode').value = p.approval_mode || 'dashboard';
       setMode(p.format_mode);
       document.querySelectorAll('.fmt').forEach((c) => c.checked = p.formats.includes(c.value));
       $('setup').classList.remove('hidden');

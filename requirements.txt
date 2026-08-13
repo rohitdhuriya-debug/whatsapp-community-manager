@@ -22,6 +22,9 @@ openpyxl>=3.1.5
 # PNG so previews do not depend on the browser having a PDF plugin.
 pypdf>=5.0.0
 pymupdf>=1.24.0
+# Pulled in by reportlab, but the cover generator draws the logo through it
+# directly, so it is pinned rather than left transitive.
+pillow>=10.0.0
 
 # Google Drive hosting for channel posts (channels take a link, not a file)
 google-auth>=2.30.0

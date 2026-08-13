@@ -124,6 +124,10 @@ class Target(SQLModel, table=True):
     disclaimer_mode: str = Field(default="auto")
 
     approval_required: bool = True
+    # Where THIS chat's drafts get signed off: "dashboard" in the browser, or
+    # "whatsapp" by replying to a message on your own number. Per-target, so a
+    # channel can need a phone sign-off while a test group does not.
+    approval_mode: str = Field(default="dashboard")
     enabled: bool = True
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -149,9 +153,12 @@ class Campaign(SQLModel, table=True):
     # Post page one of a PDF as an image before the document, so the feed shows
     # a preview rather than a bare filename.
     send_cover_image: bool = True
-    # "dashboard" = approve in the browser. "whatsapp" = the draft is sent to
-    # your own number first, and only goes out when you reply /approve.
-    approval_mode: str = Field(default="dashboard")
+    # "per_target" (default) lets each target decide - see Target.approval_mode.
+    # "dashboard" and "whatsapp" force one mode for the whole campaign.
+    approval_mode: str = Field(default="per_target")
+    # Channels render a document attachment poorly and WhatsApp scrapes any bare
+    # link into an ugly card, so a channel post leads with a generated cover.
+    generate_cover: bool = True
     created_at: datetime = Field(default_factory=utcnow, index=True)
     last_run_at: datetime | None = None
 
@@ -189,6 +196,12 @@ class Autopilot(SQLModel, table=True):
     recent_formats: list[str] = Field(default_factory=list, sa_column=Column(JSON))
 
     approval_required: bool = True
+    # Autopilot signs off separately from any single target, because it fires
+    # unattended - "whatsapp" is the useful setting here.
+    approval_mode: str = Field(default="dashboard")
+    # Headlines already posted about, so a run never repeats a story even when
+    # the wording differs enough to slip past the similarity check.
+    recent_news_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON))
     active: bool = True
     last_plan: dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow)
@@ -288,6 +301,10 @@ class ApprovalRequest(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     campaign_id: int = Field(foreign_key="campaigns.id", index=True)
+    # Which chat this request covers. None means the whole campaign (the old
+    # behaviour). Set per-target so approving one channel cannot release the
+    # drafts of a target that was set to sign off in the dashboard.
+    target_id: int | None = Field(default=None, foreign_key="targets.id", index=True)
 
     # Short human-typable code, so several pending approvals stay unambiguous.
     code: str = Field(index=True)

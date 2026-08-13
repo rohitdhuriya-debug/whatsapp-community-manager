@@ -19,6 +19,26 @@
   </div>
 </div>
 
+<form id="search-form" class="flex items-center gap-2 mb-4" autocomplete="off">
+  <div class="relative flex-1">
+    <svg class="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted" viewBox="0 0 20 20"
+         fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+      <circle cx="9" cy="9" r="6"></circle><path d="m14 14 3.5 3.5" stroke-linecap="round"></path>
+    </svg>
+    <input id="search-input" type="search" class="field pl-10"
+           placeholder="Search any topic — a company, a country, a technology…"
+           aria-label="Search the news wire">
+  </div>
+  <button type="submit" id="btn-search"
+          class="press bg-accent text-white text-sm font-medium rounded-xl px-4 py-2.5 hover:bg-accent/90 shrink-0">
+    Search
+  </button>
+  <button type="button" id="btn-clear-search"
+          class="press text-sm font-medium rounded-xl border border-line px-4 py-2.5 hover:bg-wash shrink-0 hidden">
+    Clear
+  </button>
+</form>
+
 <div class="flex items-center gap-2 mb-4 overflow-x-auto -mx-1 px-1" id="feed-tabs"></div>
 
 <div id="news-list" class="space-y-3">
@@ -68,26 +88,38 @@
 {% block scripts %}
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { feedId: null, feeds: [] };
+// `query` non-empty means we are showing search results rather than a feed.
+const state = { feedId: null, feeds: [], query: '' };
 
 /* ── feeds ──────────────────────────────────────────────────────────────── */
 
 async function loadFeeds() {
   state.feeds = await api.get('/api/news/feeds');
 
+  const active = (id) => state.query === '' && state.feedId === id;
+
   $('feed-tabs').innerHTML = [
+    // A search shows as its own tab, so it is obvious the list is not a feed.
+    ...(state.query ? [`
+      <button data-search="1" class="feed-tab chip shrink-0 text-sm rounded-xl border px-4 py-2
+        border-accent bg-accent/5 text-accent font-medium">
+        “${escapeHtml(state.query)}”</button>`] : []),
     `<button data-feed="" class="feed-tab chip shrink-0 text-sm rounded-xl border px-4 py-2
-       ${state.feedId === null ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
+       ${active(null) ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
        All</button>`,
     ...state.feeds.filter((f) => f.active).map((f) => `
       <button data-feed="${f.id}" class="feed-tab chip shrink-0 text-sm rounded-xl border px-4 py-2
-        ${state.feedId === f.id ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
+        ${active(f.id) ? 'border-accent bg-accent/5 text-accent font-medium' : 'border-line hover:bg-wash'}">
         ${escapeHtml(f.name)} <span class="text-muted">${f.items}</span>
       </button>`),
   ].join('');
 
   $('feed-tabs').querySelectorAll('[data-feed]').forEach((b) =>
     b.addEventListener('click', () => {
+      // Picking a feed leaves search behind.
+      state.query = '';
+      $('search-input').value = '';
+      $('btn-clear-search').classList.add('hidden');
       state.feedId = b.dataset.feed ? Number(b.dataset.feed) : null;
       loadFeeds(); loadItems();
     }));
@@ -149,16 +181,27 @@ $('btn-save-feed').addEventListener('click', async (e) => {
 async function loadItems() {
   const host = $('news-list');
   try {
-    const url = state.feedId ? `/api/news/items?feed_id=${state.feedId}&limit=60`
-                             : '/api/news/items?limit=60';
+    let url;
+    if (state.query) {
+      url = `/api/news/search?q=${encodeURIComponent(state.query)}&limit=30`;
+    } else if (state.feedId) {
+      url = `/api/news/items?feed_id=${state.feedId}&limit=60`;
+    } else {
+      url = '/api/news/items?limit=60';
+    }
     const data = await api.get(url);
     $('last-refresh').textContent = `Updated ${data.last_refresh_label}`;
 
     if (!data.items.length) {
-      host.innerHTML = `<div class="rounded-2xl border border-line p-10 text-center">
-        <p class="font-medium">No headlines yet</p>
-        <p class="text-sm text-muted mt-1">Press <strong>Refresh now</strong> — it pulls in a few seconds.</p>
-      </div>`;
+      host.innerHTML = state.query
+        ? `<div class="rounded-2xl border border-line p-10 text-center">
+             <p class="font-medium">Nothing recent for “${escapeHtml(state.query)}”</p>
+             <p class="text-sm text-muted mt-1">Search covers the last few days. Try fewer, broader words.</p>
+           </div>`
+        : `<div class="rounded-2xl border border-line p-10 text-center">
+             <p class="font-medium">No headlines yet</p>
+             <p class="text-sm text-muted mt-1">Press <strong>Refresh now</strong> — it pulls in a few seconds.</p>
+           </div>`;
       return;
     }
 
@@ -238,10 +281,41 @@ $('btn-refresh').addEventListener('click', async (e) => {
   finally { e.target.disabled = false; e.target.textContent = 'Refresh now'; }
 });
 
+async function runSearch(query) {
+  const text = (query || '').trim();
+  if (!text) return;
+  state.query = text;
+  state.feedId = null;
+  $('btn-clear-search').classList.remove('hidden');
+  const host = $('news-list');
+  host.innerHTML = `<div class="rounded-2xl border border-line p-8 text-center text-sm text-muted">
+    Searching the wire for “${escapeHtml(text)}”…</div>`;
+  await loadFeeds();
+  await loadItems();
+}
+
+$('search-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  runSearch($('search-input').value);
+});
+
+$('btn-clear-search').addEventListener('click', async () => {
+  state.query = '';
+  $('search-input').value = '';
+  $('btn-clear-search').classList.add('hidden');
+  await loadFeeds();
+  await loadItems();
+});
+
 (async () => { await loadFeeds(); await loadItems(); })();
 
 // Auto-refresh every 30 minutes, as asked. Reads what the hourly job stored -
 // it does not itself trigger a fetch, so leaving the tab open costs nothing.
-setInterval(() => { loadFeeds(); loadItems(); }, 30 * 60 * 1000);
+// Skipped while search results are up: silently replacing them with trending
+// news would look like the page had lost the search.
+setInterval(() => {
+  if (state.query) return;
+  loadFeeds(); loadItems();
+}, 30 * 60 * 1000);
 </script>
 {% endblock %}

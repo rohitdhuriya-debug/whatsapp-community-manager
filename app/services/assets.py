@@ -58,21 +58,24 @@ _FONTS_READY = False
 FONT_REGULAR = "Helvetica"
 FONT_BOLD = "Helvetica-Bold"
 FONT_UNICODE = "Helvetica"
+FONT_DISPLAY = "Helvetica-Bold"
 
 MAC_FONTS = {
     "AppSans": "/System/Library/Fonts/Supplemental/Arial.ttf",
     "AppSans-Bold": "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     # Covers Devanagari and most other scripts, for non-English assets.
     "AppUnicode": "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+    # Heavier face for cover headlines. Narrow coverage (Latin only), so it is
+    # only ever used for display text that has been through _fit_to_font.
+    "AppDisplay": "/System/Library/Fonts/Supplemental/Arial Black.ttf",
 }
 
 
 def _register_fonts() -> None:
     """Register TTFs once. Falls back to built-in Helvetica if absent."""
-    global _FONTS_READY, FONT_REGULAR, FONT_BOLD, FONT_UNICODE
+    global _FONTS_READY, FONT_REGULAR, FONT_BOLD, FONT_UNICODE, FONT_DISPLAY
     if _FONTS_READY:
         return
-    _FONTS_READY = True
 
     for name, path in MAC_FONTS.items():
         if not Path(path).exists():
@@ -88,6 +91,14 @@ def _register_fonts() -> None:
         FONT_REGULAR, FONT_BOLD = "AppSans", "AppSans-Bold"
     if "AppUnicode" in registered:
         FONT_UNICODE = "AppUnicode"
+    if "AppDisplay" in registered:
+        FONT_DISPLAY = "AppDisplay"
+    else:
+        FONT_DISPLAY = FONT_BOLD
+
+    # Last, not first: setting the flag before the globals are assigned lets a
+    # concurrent caller return early and draw everything in Helvetica.
+    _FONTS_READY = True
 
 
 def _needs_unicode_font(text: str) -> bool:

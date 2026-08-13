@@ -218,11 +218,21 @@ async def chat(
     except ValueError as exc:
         raise LLMError("OpenRouter returned a non-JSON response.") from exc
 
-    # Some free models surface upstream failures inside a 200 body.
+    # Some free models surface upstream failures inside a 200 body - "all
+    # providers at capacity", "upstream error from <provider>". These are the
+    # model flapping, not the account, so they must fall through to the next
+    # candidate. Same reasoning as the 429 branch above: one wasted attempt is
+    # cheaper than losing the message.
     if isinstance(data, dict) and data.get("error"):
         err = data["error"]
         message = err.get("message") if isinstance(err, dict) else str(err)
-        raise LLMError(f"OpenRouter error: {message}")
+        text = str(message or "").lower()
+        account_limit = any(
+            phrase in text
+            for phrase in ("add credits", "add more credits", "insufficient credits",
+                           "daily limit", "free-tier limit", "quota exceeded")
+        )
+        raise LLMError(f"OpenRouter error: {message}", retryable=not account_limit)
 
     choices = data.get("choices") or []
     if not choices:

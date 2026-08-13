@@ -54,6 +54,9 @@ def list_feeds(session: Session = Depends(get_session)) -> list[dict[str, Any]]:
     feeds = session.exec(select(NewsFeed).order_by(NewsFeed.id)).all()
     out = []
     for feed in feeds:
+        # The Search feed is storage for ad-hoc results, not a tab of its own.
+        if feed.name == news.SEARCH_FEED_NAME:
+            continue
         count = len(session.exec(select(NewsItem).where(NewsItem.feed_id == feed.id)).all())
         out.append(_feed_dict(feed, count))
     return out
@@ -113,6 +116,13 @@ def list_items(
     query = select(NewsItem)
     if feed_id is not None:
         query = query.where(NewsItem.feed_id == feed_id)
+    else:
+        # Search results are one-off lookups, not trending news.
+        search_id = session.exec(
+            select(NewsFeed.id).where(NewsFeed.name == news.SEARCH_FEED_NAME)
+        ).first()
+        if search_id is not None:
+            query = query.where(NewsItem.feed_id != search_id)
     # Feeds overlap by design ("Indian stock market" and "Stocks in the news"
     # both catch a Sensex story), and dedupe at write time is per-feed so each
     # tab stays complete. Collapse across feeds only for the combined view, and
@@ -143,6 +153,39 @@ def list_items(
         "count": len(items),
         "last_refresh": latest.isoformat() if latest else None,
         "last_refresh_label": fmt_local(latest) if latest else "never",
+    }
+
+
+@router.get("/search")
+async def search_news(
+    q: str, limit: int = 25, session: Session = Depends(get_session)
+) -> dict[str, Any]:
+    """Search the live news wire for anything, not just the standing feeds.
+
+    Results are saved under an inactive "Search" feed, so each one carries a
+    real id and the existing "What does this mean?" / "Post about this"
+    buttons keep working unchanged.
+    """
+    text = " ".join((q or "").split())
+    if not text:
+        raise HTTPException(status_code=400, detail="Type something to search for.")
+
+    try:
+        rows = await news.search(session, text, limit=max(5, min(limit, 40)))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Search failed: {exc}") from exc
+
+    items = []
+    for row in rows:
+        data = news.as_dict(row)
+        data["feed_name"] = "Search"
+        data["category"] = "Search"
+        items.append(data)
+    return {
+        "items": items,
+        "count": len(items),
+        "query": text,
+        "last_refresh_label": "just now",
     }
 
 

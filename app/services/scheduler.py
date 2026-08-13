@@ -48,9 +48,17 @@ def start() -> AsyncIOScheduler:
 
         # Standing job, separate from user schedules: news costs no API quota,
         # so it can refresh hourly regardless of what else is configured.
+        # start_date pulls the first run forward: apscheduler otherwise defaults
+        # it to now + interval, so a fresh boot showed hour-old news for an hour.
+        from datetime import datetime, timedelta
+
         _scheduler.add_job(
             refresh_news,
-            trigger=IntervalTrigger(minutes=NEWS_INTERVAL_MINUTES, timezone=config.tz),
+            trigger=IntervalTrigger(
+                minutes=NEWS_INTERVAL_MINUTES,
+                timezone=config.tz,
+                start_date=datetime.now(config.tz) + timedelta(seconds=20),
+            ),
             id="news-refresh",
             name="Refresh news feeds",
             misfire_grace_time=MISFIRE_GRACE_SECONDS,

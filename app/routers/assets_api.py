@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Response
@@ -11,7 +12,22 @@ from ..services import assets
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
-MIME_BY_KIND = {"pdf": assets.PDF_MIME, "excel": assets.XLSX_MIME}
+MIME_BY_KIND = {
+    "pdf": assets.PDF_MIME,
+    "excel": assets.XLSX_MIME,
+    "image": "image/png",
+}
+
+
+def _kind_for(path: Path) -> str:
+    """Every non-xlsx file used to be typed as a PDF, so cover PNGs downloaded
+    as PDFs and /inline asked the browser to render one."""
+    suffix = path.suffix.lower()
+    if suffix in (".xlsx", ".xls"):
+        return "excel"
+    if suffix in (".png", ".jpg", ".jpeg"):
+        return "image"
+    return "pdf"
 
 
 @router.get("")
@@ -31,7 +47,7 @@ def _resolve(filename: str):
 @router.get("/{filename}/preview")
 def preview(filename: str) -> dict[str, Any]:
     path = _resolve(filename)
-    kind = "excel" if path.suffix in (".xlsx", ".xls") else "pdf"
+    kind = _kind_for(path)
     return assets.preview(str(path), kind)
 
 
@@ -54,7 +70,7 @@ def page_image(filename: str, index: int) -> Response:
 @router.get("/{filename}/inline")
 def inline(filename: str) -> FileResponse:
     path = _resolve(filename)
-    kind = "excel" if path.suffix in (".xlsx", ".xls") else "pdf"
+    kind = _kind_for(path)
     return FileResponse(
         path,
         media_type=MIME_BY_KIND.get(kind, "application/octet-stream"),
@@ -65,7 +81,7 @@ def inline(filename: str) -> FileResponse:
 @router.get("/{filename}")
 def download(filename: str) -> FileResponse:
     path = _resolve(filename)
-    kind = "excel" if path.suffix in (".xlsx", ".xls") else "pdf"
+    kind = _kind_for(path)
     return FileResponse(
         path, media_type=MIME_BY_KIND.get(kind, "application/octet-stream"),
         filename=path.name,

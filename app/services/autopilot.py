@@ -72,8 +72,8 @@ async def run(
     session.add(campaign)
     session.commit()
 
-    # The planner already ran research for this topic; reuse it rather than
-    # searching twice for the same thing.
+    # Clear any pending draft from an earlier run of this autopilot, so a
+    # re-run does not stack up two drafts per chat.
     for draft in session.exec(
         select(Draft).where(
             Draft.campaign_id == campaign.id, Draft.status == DraftStatus.pending
@@ -99,6 +99,11 @@ async def run(
         "format": decision["format"],
         "why": decision["why"],
         "repeat_warning": decision["repeat_warning"],
+        # What it was built on, so the card can show this was real news.
+        "headline": decision.get("headline", ""),
+        "headline_url": decision.get("headline_url", ""),
+        "headline_source": decision.get("headline_source", ""),
+        "headlines_offered": decision.get("headlines_offered", 0),
     }
 
     if not deliver:
@@ -109,6 +114,31 @@ async def run(
     if autopilot.approval_required:
         result["delivered"] = False
         result["awaiting_approval"] = True
+
+        # Sign off from the phone rather than the dashboard. Autopilot fires
+        # unattended, so this is the setting that makes it usable - otherwise a
+        # draft sits in the browser until someone opens it.
+        if (autopilot.approval_mode or "dashboard") == "whatsapp":
+            from . import approvals
+
+            phase("saving", "Sending for approval on WhatsApp…")
+            raised = []
+            for draft_id in result.get("draft_ids", []):
+                draft = session.get(Draft, draft_id)
+                if draft is None or draft.status != DraftStatus.pending:
+                    continue
+                target = session.get(Target, draft.target_id)
+                if target is None:
+                    continue
+                try:
+                    info = await approvals.request(session, campaign, [draft], target)
+                except Exception as exc:
+                    # A failed notification must not lose the draft.
+                    result.setdefault("approval_error", str(exc))
+                    continue
+                raised.append({**info, "target": target.name})
+            if raised:
+                result["approvals"] = raised
         return result
 
     phase("saving", "Sending…")

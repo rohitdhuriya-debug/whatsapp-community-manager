@@ -14,6 +14,9 @@
       <span class="text-[11px] px-2 py-0.5 rounded-full bg-wash border border-line text-muted">{{ target.language.value }}</span>
       {% if target.approval_required %}
         <span class="text-[11px] px-2 py-0.5 rounded-full bg-accent/10 border border-accent/20 text-accent">approval required</span>
+      {% endif %}
+      {% if target.approval_mode == 'whatsapp' %}
+        <span class="text-[11px] px-2 py-0.5 rounded-full bg-ok/10 border border-ok/20 text-ok">approve on WhatsApp</span>
       {% else %}
         <span class="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">auto-send</span>
       {% endif %}
@@ -192,6 +195,19 @@
       </span>
       <input type="checkbox" id="p-approval" {% if target.approval_required %}checked{% endif %}
              class="h-5 w-5 rounded border-line text-accent focus:ring-accent/30">
+    </label>
+
+    <label class="block mt-4">
+      <span class="text-sm font-medium">Approve where?</span>
+      <select id="p-approval-mode" class="field mt-1.5">
+        <option value="dashboard" {% if target.approval_mode != 'whatsapp' %}selected{% endif %}>
+          Here, in the dashboard</option>
+        <option value="whatsapp" {% if target.approval_mode == 'whatsapp' %}selected{% endif %}>
+          On WhatsApp — reply to approve</option>
+      </select>
+      <span class="block text-xs text-muted mt-1.5">
+        Applies to this chat only. Other chats in the same send keep their own setting.
+      </span>
     </label>
 
     <div class="flex items-center gap-3 mt-6">

@@ -36,7 +36,8 @@ class CampaignIn(BaseModel):
     extra_instructions: str = ""
     use_research: bool = True
     send_cover_image: bool = True
-    approval_mode: Literal["dashboard", "whatsapp"] = "dashboard"
+    approval_mode: Literal["per_target", "dashboard", "whatsapp"] = "per_target"
+    generate_cover: bool = True
     target_ids: list[int] = []
 
 
@@ -50,7 +51,8 @@ class CampaignPatch(BaseModel):
     extra_instructions: str | None = None
     use_research: bool | None = None
     send_cover_image: bool | None = None
-    approval_mode: Literal["dashboard", "whatsapp"] | None = None
+    approval_mode: Literal["per_target", "dashboard", "whatsapp"] | None = None
+    generate_cover: bool | None = None
     target_ids: list[int] | None = None
 
 
@@ -92,6 +94,7 @@ def _serialise(session: Session, campaign: Campaign) -> dict[str, Any]:
         "use_research": campaign.use_research,
         "send_cover_image": campaign.send_cover_image,
         "approval_mode": campaign.approval_mode,
+        "generate_cover": campaign.generate_cover,
         "target_ids": [t.id for t in targets],
         "targets": [{"id": t.id, "name": t.name, "type": t.type.value} for t in targets],
         "created_at": campaign.created_at.isoformat(),
@@ -143,6 +146,7 @@ def create_campaign(
         use_research=payload.use_research,
         send_cover_image=payload.send_cover_image,
         approval_mode=payload.approval_mode,
+        generate_cover=payload.generate_cover,
     )
     session.add(campaign)
     session.commit()
@@ -186,10 +190,13 @@ def delete_campaign(campaign_id: int, session: Session = Depends(get_session)) -
     """
     from sqlalchemy import delete, update
 
-    from ..models import Schedule
+    from ..models import ApprovalRequest, Schedule
 
     _get_or_404(session, campaign_id)
 
+    # Approvals reference the campaign, so they go before it - SQLAlchemy will
+    # not order these for us, and the FK fails if the campaign goes first.
+    session.exec(delete(ApprovalRequest).where(ApprovalRequest.campaign_id == campaign_id))
     session.exec(delete(Schedule).where(Schedule.campaign_id == campaign_id))
     session.exec(delete(CampaignTarget).where(CampaignTarget.campaign_id == campaign_id))
     session.exec(
@@ -254,25 +261,40 @@ async def _generate_in_background(campaign_id: int, job: jobs.Job) -> dict[str, 
             raise RuntimeError(str(exc)) from exc
 
         # Sign-off happens on WhatsApp: push the draft to your own number and
-        # wait for the reply rather than for a click in the dashboard.
-        if campaign.approval_mode == "whatsapp":
-            from ..services import approvals
+        # wait for the reply rather than for a click in the dashboard. Each
+        # chat decides for itself, so one campaign can raise several requests -
+        # or none.
+        from ..services import approvals
 
-            job.set_phase("saving", "Sending for approval on WhatsApp…")
-            drafts = session.exec(
-                select(Draft).where(
-                    Draft.campaign_id == campaign.id,
-                    Draft.status == DraftStatus.pending,
-                )
-            ).all()
+        drafts = session.exec(
+            select(Draft).where(
+                Draft.campaign_id == campaign.id,
+                Draft.status == DraftStatus.pending,
+            )
+        ).all()
+
+        raised: list[dict[str, Any]] = []
+        for draft in drafts:
+            target = session.get(Target, draft.target_id)
+            if target is None:
+                continue
+            if approvals.resolve_mode(campaign, target) != "whatsapp":
+                continue
+            job.set_phase("saving", f"Sending {target.name} for approval on WhatsApp…")
             try:
-                result["approval"] = await approvals.request(
-                    session, campaign, list(drafts)
-                )
+                info = await approvals.request(session, campaign, [draft], target)
             except Exception as exc:
                 # Never lose the draft over a failed notification - it stays
                 # pending and can still be approved in the dashboard.
-                result["approval_error"] = str(exc)
+                result.setdefault("approval_error", str(exc))
+                continue
+            raised.append({**info, "target": target.name, "target_id": target.id})
+
+        if raised:
+            result["approvals"] = raised
+            # The composer banner reads a single `approval`; keep it populated
+            # for the common one-chat case.
+            result["approval"] = raised[0]
 
         return result
 

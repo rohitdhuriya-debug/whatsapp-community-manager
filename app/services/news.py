@@ -74,7 +74,26 @@ DEFAULT_FEEDS = [
         "category": "Stocks",
         "query": "Indian stocks news NSE BSE",
     },
+    {
+        # Measured against alternatives: "AI news" returned 25 clean industry
+        # headlines with zero stock-prediction spam, where "artificial
+        # intelligence" was polluted with Motley Fool "this AI stock will
+        # double" pieces.
+        "name": "AI",
+        "category": "AI",
+        "query": "AI news",
+    },
 ]
+
+# Bumped whenever DEFAULT_FEEDS gains an entry, so an existing install picks it
+# up. A plain "is the table empty" check would never seed a 5th feed.
+DEFAULTS_VERSION = 2
+DEFAULTS_SETTING = "news_defaults_version"
+
+# Ad-hoc searches land in their own inactive feed: item ids stay real (so
+# "What does this mean?" and "Post about this" work unchanged), _prune keeps it
+# bounded, and the hourly refresh skips it because it is not active.
+SEARCH_FEED_NAME = "Search"
 
 
 def _dedupe_key(title: str) -> str:
@@ -188,13 +207,39 @@ def _recent(items: list[dict[str, Any]], max_age_hours: int) -> list[dict[str, A
 
 
 def seed_defaults(session: Session) -> None:
-    """First run: give the tab something to show."""
-    if session.exec(select(NewsFeed)).first() is not None:
+    """Give the tab something to show, and add feeds shipped since last time.
+
+    Versioned rather than "seed only when empty": this runs on every feed and
+    item request, so it must be cheap, must not resurrect a feed the user
+    deleted, and must still deliver a newly shipped default to an install that
+    already has the earlier ones.
+    """
+    from ..db import get_setting, set_setting
+
+    try:
+        applied = int(get_setting(session, DEFAULTS_SETTING, "0") or 0)
+    except ValueError:
+        applied = 0
+
+    existing = session.exec(select(NewsFeed)).all()
+    if applied == 0 and existing:
+        # Pre-versioning install: it already has v1, so only later ones apply.
+        applied = 1
+    if applied >= DEFAULTS_VERSION:
         return
+
+    known = {(f.name or "").strip().lower() for f in existing}
+    added = 0
     for spec in DEFAULT_FEEDS:
+        if spec["name"].strip().lower() in known:
+            continue
         session.add(NewsFeed(**spec))
+        added += 1
+
+    set_setting(session, DEFAULTS_SETTING, str(DEFAULTS_VERSION))
     session.commit()
-    log.info("Seeded %s default news feeds.", len(DEFAULT_FEEDS))
+    if added:
+        log.info("Seeded %s news feed(s) at version %s.", added, DEFAULTS_VERSION)
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +347,138 @@ def _prune(session: Session, feed_id: int) -> None:
     if rows:
         session.exec(delete(NewsItem).where(NewsItem.id.in_(list(rows))))
     session.commit()
+
+
+def search_feed(session: Session) -> NewsFeed:
+    """The inactive feed ad-hoc searches are stored under."""
+    feed = session.exec(
+        select(NewsFeed).where(NewsFeed.name == SEARCH_FEED_NAME)
+    ).first()
+    if feed is None:
+        feed = NewsFeed(
+            name=SEARCH_FEED_NAME, category="Search", query="",
+            # Inactive so refresh_all() never re-runs a one-off search.
+            active=False,
+        )
+        session.add(feed)
+        session.commit()
+        session.refresh(feed)
+    return feed
+
+
+async def search(session: Session, query: str, *, limit: int = 25) -> list[NewsItem]:
+    """Search the live news wire, newest first.
+
+    Results are persisted under the Search feed rather than returned raw, so
+    they carry real ids - "What does this mean?" and "Post about this" both
+    look items up by id and would otherwise 404 on a search result.
+    """
+    text = " ".join((query or "").split())
+    if not text:
+        return []
+    # Same lesson as the standing feeds: Google News ANDs every term.
+    if len(text.split()) > 6:
+        text = " ".join(text.split()[:6])
+
+    feed = search_feed(session)
+    found: list[dict[str, Any]] = []
+    for window in FRESH_WINDOWS:
+        raw = await asyncio.to_thread(_fetch_rss, text, limit, window)
+        found = _recent(raw, MAX_AGE_HOURS if window == "when:1d" else RETAIN_HOURS)
+        if len(found) >= MIN_ITEMS:
+            break
+
+    known = {
+        row.dedupe_key: row
+        for row in session.exec(select(NewsItem).where(NewsItem.feed_id == feed.id)).all()
+    }
+    out: list[NewsItem] = []
+    for item in found:
+        title = (item.get("title") or "").strip()
+        key = _dedupe_key(title)
+        if not title or not key or looks_like_landing_page(title):
+            continue
+        existing = known.get(key)
+        if existing is not None:
+            out.append(existing)
+            continue
+        row = NewsItem(
+            feed_id=feed.id, title=title, dedupe_key=key,
+            url=item.get("url", ""), source=item.get("source", ""),
+            snippet=(item.get("snippet") or "")[:600],
+            published=item.get("published", ""),
+            published_at=item.get("published_at"),
+            via=item.get("via", ""), fetched_at=utcnow(),
+        )
+        session.add(row)
+        known[key] = row
+        out.append(row)
+
+    feed.query = text
+    feed.last_fetched_at = utcnow()
+    session.add(feed)
+    session.commit()
+    for row in out:
+        session.refresh(row)
+
+    _prune(session, feed.id)
+    log.info("Search %r: %s result(s).", text, len(out))
+    # _prune may have deleted the tail; only return what still exists. Sort
+    # here rather than trusting fetch order - `out` mixes freshly fetched rows
+    # with ones a previous search already stored.
+    alive = [r for r in out if session.get(NewsItem, r.id) is not None]
+    alive.sort(key=lambda r: r.published_at or datetime.min, reverse=True)
+    return alive
+
+
+def fresh_headlines(
+    session: Session, *, hours: int = 24, limit: int = 12, widen_to: int = 48
+) -> list[NewsItem]:
+    """Recent, dated, deduped headlines from the standing feeds.
+
+    Undated rows are excluded outright: this feeds Autopilot, and a headline
+    with no publish date cannot be shown to be recent.
+    """
+    search_id = session.exec(
+        select(NewsFeed.id).where(NewsFeed.name == SEARCH_FEED_NAME)
+    ).first()
+
+    def _query(window: int) -> list[NewsItem]:
+        cutoff = utcnow() - timedelta(hours=window)
+        stmt = select(NewsItem).where(
+            NewsItem.published_at.is_not(None),
+            NewsItem.published_at >= cutoff,
+        )
+        if search_id is not None:
+            stmt = stmt.where(NewsItem.feed_id != search_id)
+        return list(session.exec(stmt.order_by(NewsItem.published_at.desc()).limit(limit * 4)).all())
+
+    rows = _query(hours)
+    if len(rows) < 5:
+        rows = _query(widen_to)
+
+    seen: set[str] = set()
+    out: list[NewsItem] = []
+    for row in rows:
+        key = row.dedupe_key or row.title.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def format_for_planner(items: list[NewsItem]) -> str:
+    """Numbered headlines with their age, for the planner prompt."""
+    from ..util import relative
+
+    lines = []
+    for item in items:
+        when = relative(item.published_at or item.fetched_at)
+        lines.append(f"[{item.id}] {item.title} ({item.source or 'news'}, {when})")
+    return "\n".join(lines)
 
 
 async def refresh_all(session: Session) -> dict[str, Any]:

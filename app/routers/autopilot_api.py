@@ -40,6 +40,8 @@ class AutopilotIn(BaseModel):
     use_research: bool = True
     send_cover_image: bool = True
     approval_required: bool = True
+    # Autopilot fires unattended, so "whatsapp" is the useful setting.
+    approval_mode: str = "dashboard"
 
 
 class AutopilotPatch(BaseModel):
@@ -55,6 +57,7 @@ class AutopilotPatch(BaseModel):
     use_research: bool | None = None
     send_cover_image: bool | None = None
     approval_required: bool | None = None
+    approval_mode: str | None = None
     active: bool | None = None
 
 
@@ -83,6 +86,7 @@ def _serialise(session: Session, pilot: Autopilot) -> dict[str, Any]:
         "format_mode": pilot.format_mode,
         "formats": pilot.formats,
         "approval_required": pilot.approval_required,
+        "approval_mode": pilot.approval_mode,
         "active": pilot.active,
         "language": campaign.language if campaign else "hinglish",
         "engine": campaign.engine.value if campaign else "openrouter",
@@ -156,6 +160,7 @@ def create_autopilot(
         format_mode=payload.format_mode,
         formats=[f for f in payload.formats if f in FORMATS] or FORMATS,
         approval_required=payload.approval_required,
+        approval_mode=payload.approval_mode,
     )
     session.add(pilot)
     session.commit()
