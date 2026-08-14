@@ -283,7 +283,8 @@ async def _release(session: Session, row: ApprovalRequest) -> None:
         if target is None:
             continue
         try:
-            await sender.send_draft(session, draft, target)
+            # Released by the reply we just read - this is the approval.
+            await sender.send_draft(session, draft, target, approved=True)
         except (sender.SendBlocked, waha.WahaError) as exc:
             message = getattr(exc, "message", str(exc))
             draft.status = DraftStatus.failed

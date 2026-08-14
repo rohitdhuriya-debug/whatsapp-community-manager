@@ -315,7 +315,7 @@ async def send_now(
             status_code=409, detail="Nothing to send — generate the content first."
         )
 
-    sent, failed = 0, []
+    sent, failed, waiting = 0, [], []
     for draft in drafts:
         target = session.get(Target, draft.target_id)
         if target is None:
@@ -326,6 +326,11 @@ async def send_now(
             continue
         try:
             await sender.send_draft(session, draft, target)
+        except sender.AwaitingApproval as exc:
+            # Not a failure - it is waiting on you. Leave it pending so the
+            # WhatsApp reply can still release it.
+            waiting.append(f"{target.name}: {exc}")
+            continue
         except (sender.SendBlocked, waha.WahaError) as exc:
             message = getattr(exc, "message", str(exc))
             draft.status = DraftStatus.failed
@@ -341,7 +346,16 @@ async def send_now(
         sent += 1
 
     session.commit()
-    return {"ok": not failed, "sent": sent, "failed": len(failed), "errors": failed[:5]}
+    return {
+        "ok": not failed,
+        "sent": sent,
+        "failed": len(failed),
+        "errors": failed[:5],
+        # Surfaced separately from errors: these drafts are intact and still
+        # waiting on a WhatsApp reply, not broken.
+        "awaiting_approval": len(waiting),
+        "awaiting": waiting[:5],
+    }
 
 
 @router.get("/{campaign_id}/asset")

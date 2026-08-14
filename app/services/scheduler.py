@@ -263,6 +263,8 @@ async def run_scheduled_campaign(campaign_id: int, schedule_id: int) -> None:
             # FR-5 jitter, so several campaigns in one window do not burst.
             await asyncio.sleep(random.randint(30, 120))
 
+            from . import approvals
+
             for draft_id in result["draft_ids"]:
                 draft = session.get(Draft, draft_id)
                 if draft is None:
@@ -270,6 +272,33 @@ async def run_scheduled_campaign(campaign_id: int, schedule_id: int) -> None:
                 target = session.get(Target, draft.target_id)
                 if target is None:
                     continue
+
+                # A scheduled run used to generate and send in one go, ignoring
+                # approval entirely - so a chat set to sign off on WhatsApp had
+                # its post published before the phone even buzzed.
+                mode = approvals.resolve_mode(campaign, target)
+                if mode == "whatsapp":
+                    try:
+                        info = await approvals.request(
+                            session, campaign, [draft], target
+                        )
+                        log.info(
+                            "Scheduled campaign %s: %s awaiting approval %s",
+                            campaign_id, target.name, info["code"],
+                        )
+                    except Exception as exc:
+                        # Leave it pending rather than sending unapproved.
+                        log.warning(
+                            "Could not raise approval for %s: %s", target.name, exc
+                        )
+                    continue
+                if target.approval_required:
+                    log.info(
+                        "Scheduled campaign %s: %s left pending for dashboard approval",
+                        campaign_id, target.name,
+                    )
+                    continue
+
                 try:
                     await sender.send_draft(session, draft, target)
                 except (sender.SendBlocked, waha.WahaError) as exc:

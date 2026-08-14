@@ -86,8 +86,23 @@ async def approve_draft(
     if target is None:
         raise HTTPException(status_code=404, detail="Target no longer exists.")
 
+    # Clicking Approve here IS the owner approving, just on a different
+    # surface. Resolve any outstanding WhatsApp request rather than refusing -
+    # and resolve it BEFORE sending, so a reply arriving meanwhile cannot
+    # release the same draft a second time.
+    from ..models import ApprovalStatus
+    from ..util import utcnow as _utcnow
+
+    waiting = sender.pending_approval(session, draft)
+    if waiting is not None:
+        waiting.status = ApprovalStatus.approved
+        waiting.resolved_at = _utcnow()
+        waiting.note = "approved in dashboard"
+        session.add(waiting)
+        session.commit()
+
     try:
-        await sender.send_draft(session, draft, target)
+        await sender.send_draft(session, draft, target, approved=True)
     except sender.SendBlocked as exc:
         draft.status = DraftStatus.failed
         draft.error = str(exc)

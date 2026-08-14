@@ -36,6 +36,16 @@ class SendBlocked(RuntimeError):
     """A guard refused the send. Never retried - retrying cannot help."""
 
 
+class AwaitingApproval(SendBlocked):
+    """Refused because sign-off is still outstanding.
+
+    A SendBlocked subclass so every existing handler still catches it and
+    nothing escapes as a 500, but its own type so callers that care can leave
+    the draft pending instead of marking it failed - it has not failed, it is
+    simply not approved yet.
+    """
+
+
 def supports_files(chat_id: str) -> bool:
     """Whether this chat accepts document attachments.
 
@@ -270,10 +280,50 @@ async def _send_telegram(
     return entry
 
 
+def pending_approval(session: Session, draft: Draft):
+    """The unresolved approval covering this draft, if there is one."""
+    from ..models import ApprovalRequest, ApprovalStatus
+
+    if draft.campaign_id is None:
+        return None
+    rows = session.exec(
+        select(ApprovalRequest).where(
+            ApprovalRequest.campaign_id == draft.campaign_id,
+            ApprovalRequest.status == ApprovalStatus.pending,
+        )
+    ).all()
+    for row in rows:
+        # target_id None is the old campaign-wide form and covers every draft.
+        if row.target_id is None or row.target_id == draft.target_id:
+            return row
+    return None
+
+
 async def send_draft(
-    session: Session, draft: Draft, target: Target, *, send_cover: bool | None = None
+    session: Session,
+    draft: Draft,
+    target: Target,
+    *,
+    send_cover: bool | None = None,
+    approved: bool = False,
 ) -> SendLog:
-    """Send whatever this draft carries - text, poll, or generated file."""
+    """Send whatever this draft carries - text, poll, or generated file.
+
+    Refuses while an approval is outstanding. This lives at the gate rather
+    than in each caller on purpose: "Send now", the scheduler and the manual
+    per-draft send each reached WhatsApp without consulting approvals, so a
+    draft awaiting sign-off on the phone went to the community anyway. A guard
+    here covers every path, including ones added later.
+    """
+    if not approved:
+        waiting = pending_approval(session, draft)
+        if waiting is not None:
+            raise AwaitingApproval(
+                f"This draft is waiting for approval on WhatsApp (code {waiting.code}). "
+                f"Reply 'approve {waiting.code}' on your phone to send it, "
+                f"or 'reject {waiting.code}' to discard it."
+            )
+
     if send_cover is None:
         # Inherit the campaign's preference when the draft came from one.
         send_cover = False
