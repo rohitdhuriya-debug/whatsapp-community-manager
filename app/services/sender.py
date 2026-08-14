@@ -28,6 +28,10 @@ log = logging.getLogger(__name__)
 CHANNEL_SUFFIX = "@newsletter"
 
 
+def is_channel(chat_id: str) -> bool:
+    return (chat_id or "").endswith(CHANNEL_SUFFIX)
+
+
 class SendBlocked(RuntimeError):
     """A guard refused the send. Never retried - retrying cannot help."""
 
@@ -175,8 +179,14 @@ async def send_to_target(
                 stored.chat_id, text.strip(), poll_options, session_name=session_name
             )
         else:
+            # Channels carry a link in almost every post, and WhatsApp scrapes
+            # it into whatever card the destination exposes - a Drive
+            # spreadsheet link renders as a blurry "Loading Google Sheets"
+            # tile. Suppressing the preview keeps the post as written; the link
+            # is still tappable.
             response = await waha.send_text(
-                stored.chat_id, text, session_name=session_name
+                stored.chat_id, text, session_name=session_name,
+                link_preview=not is_channel(stored.chat_id),
             )
     except waha.WahaError as exc:
         _log_attempt(

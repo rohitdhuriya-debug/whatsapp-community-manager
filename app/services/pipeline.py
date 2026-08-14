@@ -192,6 +192,13 @@ def sanitize(text: str, target: Target) -> str:
     text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text, flags=re.DOTALL)    # **b** -> *b*
     text = re.sub(r"__(.+?)__", r"_\1_", text, flags=re.DOTALL)
     text = re.sub(r"^\s*[-*+]\s+", "• ", text, flags=re.MULTILINE)     # md bullets
+    # Models reach for hollow geometric shapes as bullets (U+25A1 WHITE SQUARE
+    # and friends). Most phone fonts have no glyph for them, so they arrive as
+    # an empty box in the middle of an otherwise clean post.
+    text = re.sub(r"^[■-◿⬛-⬟](?!️)\s+", "▪️ ", text,
+                  flags=re.MULTILINE)
+    # The replacement character never belongs in a message.
+    text = text.replace("�", "")
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = "\n".join(line.rstrip() for line in text.splitlines()).strip()
 

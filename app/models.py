@@ -156,9 +156,11 @@ class Campaign(SQLModel, table=True):
     # "per_target" (default) lets each target decide - see Target.approval_mode.
     # "dashboard" and "whatsapp" force one mode for the whole campaign.
     approval_mode: str = Field(default="per_target")
-    # Channels render a document attachment poorly and WhatsApp scrapes any bare
-    # link into an ugly card, so a channel post leads with a generated cover.
-    generate_cover: bool = True
+    # Off by default: a generated cover reads as filler next to a well-written
+    # post, and the scraped-link-card problem it was solving is handled better
+    # by sending channel text with linkPreview disabled. Still available per
+    # send for anyone who wants one.
+    generate_cover: bool = False
     created_at: datetime = Field(default_factory=utcnow, index=True)
     last_run_at: datetime | None = None
 

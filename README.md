@@ -115,28 +115,38 @@ it is discarded. You get a receipt either way — `✅ Sent to 3 chats`.
 - If the approval message itself fails to send, the draft is still saved. A failed
   notification never loses your work.
 
-## Channel covers
+## Channel posts
 
-WhatsApp channels don't render document attachments, and a bare link gets scraped into
-whatever card the destination happens to expose — a Drive spreadsheet link came out as a
-blurry *"Loading Google Sheets"* tile. So **every channel post leads with a generated cover
-image**: a media message cannot carry a preview card at all, which both looks deliberate and
-suppresses the scraped one.
+Channel posts go out as **clean formatted text**, written to be scanned:
 
-Covers are **content-driven, not one repeated template**:
+```
+🛑 *No change in RBI repo rate today!*
 
-- The **layout** follows the shape of the post — a prominent number gets the *stat*
-  treatment, several short points get the *numbered list*, an aphorism gets the *quote*
-  card, everything else gets the *hero*.
-- The **palette** is derived from the text itself, and skips the last two used, so the same
-  post always renders identically while consecutive posts never look alike.
-- Headline, highlight phrase, chips, stat and CTA are all read out of the generated content.
+What does this mean for your wallet?
 
-Drawn with reportlab and rasterised by pymupdf — both already dependencies, so this costs
-nothing and needs no new install. Output is 1080×1350 (4:5), the largest shape WhatsApp
-shows without cropping. Toggle it per send in the Composer; it only appears when a channel
-is selected. If generation ever fails it falls back to page one of the PDF, then to no
-image — a cover is a nicety and never costs the post.
+🔹 *Home loans:* EMIs will stay *unchanged* for now.
+🔹 *Savings:* Interest rates on *FDs* won't see a jump.
+✅ *Investments:* Markets react to signals, not just rates.
+
+Are you planning to increase your *monthly investments* this month?
+```
+
+An emoji-led hook, one idea per line, the meaning-carrying words bolded, and a closing
+question that invites a reply. Groups keep the longer prose style — the two are written
+from different rules.
+
+**The link card problem.** WhatsApp scrapes any link in a text message into whatever card
+the destination exposes; a Drive spreadsheet link came out as a blurry *"Loading Google
+Sheets"* tile. Channel sends now pass `linkPreview: false`, so the post appears exactly as
+written and the link stays tappable. Groups keep previews, where they are usually useful.
+
+**Cover images are optional and off by default.** A generated cover reads as filler next to
+a well-written post, and it is not needed to suppress the link card. Tick *Add a cover image
+to channel posts* in the Composer if you want one — the control only appears when a channel
+is selected. When enabled, covers are content-driven rather than one template repeated: the
+layout follows the shape of the post (a prominent number → *stat*, short points → *numbered
+list*, an aphorism → *quote*, otherwise *hero*) and the palette is derived from the text and
+skips the last two used. Drawn with reportlab, rasterised by pymupdf, 1080×1350.
 
 ## Two engines, switchable per send
 

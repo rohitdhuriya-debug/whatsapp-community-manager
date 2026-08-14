@@ -86,6 +86,9 @@ def build_message_messages(
 ) -> list[dict[str, str]]:
     cta = next((t.cta_link for t in targets if t.cta_link), "")
     banned = sorted({t.banned_topics.strip() for t in targets if t.banned_topics.strip()})
+    # Channels are a broadcast feed with no replies threading underneath, so
+    # the post itself has to carry the structure a conversation would.
+    to_channel = any(is_channel(t.chat_id) for t in targets)
 
     system = "\n".join(
         [
@@ -94,7 +97,7 @@ def build_message_messages(
             "",
             "FORMATTING RULES - absolute:",
             "- WhatsApp formatting only: *bold*, _italic_. Single asterisks, never double.",
-            "- No markdown headers, no bullet characters at line start, no hashtags.",
+            "- No markdown headers, no '#' headings, no hashtags.",
             f"- Hard maximum {MAX_CHARS} characters. Shorter is better.",
             "- First line is a hook that stops the scroll.",
             "- One idea per message.",
@@ -103,6 +106,21 @@ def build_message_messages(
             "- Never mention that you are an AI or that this was generated.",
             "- Output ONLY the message text. No preamble, no title, no sign-off.",
         ]
+        + ([
+            "",
+            "THIS GOES TO A CHANNEL. Make it scannable and alive:",
+            "- Open with ONE emoji and a bold hook line. Never a wall of text.",
+            "- Blank line between every block. Long paragraphs do not get read.",
+            "- Use 3-5 short lines each led by an emoji (▪️ ✅ 📌 ⚡ 💡 🔹) for the",
+            "  substance. One line, one point, under 90 characters each.",
+            "- Bold the words that carry the meaning, not whole sentences.",
+            "- Close with ONE question or invitation that asks for a reaction or a",
+            "  reply. Make it specific and easy to answer.",
+            "- 4 to 8 emoji in total. Enough to give it rhythm, never decoration",
+            "  on every line, and never two in a row.",
+        ] if to_channel else [
+            "- No bullet characters at line start.",
+        ])
         + ([f"- When a CTA fits naturally, use this link: {cta}"] if cta else
            ["- No CTA link is configured, so do not invent one."])
         + ([f"- NEVER mention: {'; '.join(banned)}"] if banned else [])
@@ -246,6 +264,33 @@ def _link_label(output: OutputType) -> str:
     return "Free PDF" if output == OutputType.pdf else "Download the sheet"
 
 
+def _link_line(output: OutputType, link: str) -> str:
+    """The download line as it appears in a channel post.
+
+    Its own block with an emoji, so it reads as a deliberate call to action
+    rather than a URL trailing off the end of the last sentence.
+    """
+    icon = "📄" if output == OutputType.pdf else "📊"
+    return f"{icon} *{_link_label(output)}:*\n{link}"
+
+
+def _short_brand(campaign: Campaign, session: Session | None) -> str:
+    """A wordmark, not a headline.
+
+    Autopilot sets campaign.name to the day's topic, so using it raw put a
+    whole sentence across the top of the cover and through the badge.
+    """
+    name = (campaign.name or "").strip()
+    if name and len(name) <= 22:
+        return name
+    # Too long to be a brand: use the community's name instead.
+    if session is not None and campaign.id:
+        targets = campaign_targets(session, campaign.id)
+        if targets:
+            return targets[0].name.strip()[:22]
+    return " ".join(name.split()[:2])[:22]
+
+
 def _recent_palettes(session: Session, limit: int = 2) -> list[str]:
     """Palettes of the last few covers, so consecutive posts differ."""
     rows = session.exec(
@@ -281,7 +326,7 @@ def _build_cover(
     try:
         spec = cover.spec_from_content(
             content,
-            brand=campaign.name or "",
+            brand=_short_brand(campaign, session),
             badge=_cover_badge(campaign.output_type),
             payload=payload,
             has_link=has_link,
@@ -449,7 +494,7 @@ async def run_campaign(
             # Image + caption-with-link. No document attached.
             body = content
             if drive_link:
-                body = f"{content}\n\n{_link_label(output)}: {drive_link}"
+                body = f"{content}\n\n{_link_line(output, drive_link)}"
             draft = Draft(
                 target_id=target.id,
                 campaign_id=campaign.id,

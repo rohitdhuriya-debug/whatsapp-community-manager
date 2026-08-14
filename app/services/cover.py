@@ -170,6 +170,28 @@ def _pill(c, x, y, label, font, size, *, fill=None, stroke=None,
     return width
 
 
+def _ellipsize(text: str, font: str, size: float, width: float) -> str:
+    """Trim to fit, on a word boundary where possible."""
+    if width <= 0 or not text:
+        return ""
+    if pdfmetrics.stringWidth(text, font, size) <= width:
+        return text
+    words = text.split()
+    out = ""
+    for word in words:
+        trial = f"{out} {word}".strip()
+        if pdfmetrics.stringWidth(trial + "…", font, size) > width:
+            break
+        out = trial
+    if out:
+        return out + "…"
+    # A single word too long for the space: cut mid-word rather than vanish.
+    cut = text
+    while cut and pdfmetrics.stringWidth(cut + "…", font, size) > width:
+        cut = cut[:-1]
+    return (cut + "…") if cut else ""
+
+
 def _clean(text: str, font: str) -> str:
     """Anything the drawing font cannot render becomes something readable."""
     return assets._fit_to_font(text or "", font)
@@ -262,23 +284,29 @@ def _draw_brand(c, spec: CoverSpec, accent, y, on_dark: bool, reg, bold) -> None
         c.circle(PAD + 14, y + 12, 14, stroke=0, fill=1)
         text_x = PAD + 38
 
+    # The badge is drawn at the right edge, so the wordmark has to stop before
+    # it. Without this a long campaign name ran straight through the badge.
+    badge_label = _clean(spec.badge, bold).upper()[:22] if spec.badge else ""
+    badge_w = (pdfmetrics.stringWidth(badge_label, bold, 8.5) + 22) if badge_label else 0
+    room = COVER_W - PAD - text_x - (badge_w + 14 if badge_w else 0)
+
     if brand:
+        brand = _ellipsize(brand, bold, 14, room)
         c.setFillColor(INK)
         c.setFont(bold, 14)
         c.drawString(text_x, y + 14, brand)
     if spec.tagline:
         c.setFillColor(MUTED)
         c.setFont(reg, 7)
-        c.drawString(text_x, y + 4, _clean(spec.tagline, reg).upper())
+        c.drawString(text_x, y + 4, _ellipsize(
+            _clean(spec.tagline, reg).upper(), reg, 7, room))
 
-    if spec.badge:
-        label = _clean(spec.badge, bold).upper()[:22]
-        width = pdfmetrics.stringWidth(label, bold, 8.5) + 22
+    if badge_label:
         c.setFillColor(accent)
-        c.roundRect(COVER_W - PAD - width, y + 4, width, 20, 10, stroke=0, fill=1)
+        c.roundRect(COVER_W - PAD - badge_w, y + 4, badge_w, 20, 10, stroke=0, fill=1)
         c.setFillColor(WHITE)
         c.setFont(bold, 8.5)
-        c.drawString(COVER_W - PAD - width + 11, y + 10, label)
+        c.drawString(COVER_W - PAD - badge_w + 11, y + 10, badge_label)
 
 
 def _draw_hero(c, spec, y, accent, soft, reg, bold, display) -> float:
