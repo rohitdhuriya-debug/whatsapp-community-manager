@@ -28,7 +28,7 @@ from ..models import (
 )
 from ..util import utcnow
 from . import assets, cover, drive, engines, research, sender
-from .pipeline import MAX_CHARS, parse_poll, sanitize
+from .pipeline import MAX_CHARS, apply_disclaimer, parse_poll, sanitize
 
 log = logging.getLogger(__name__)
 
@@ -492,9 +492,11 @@ async def run_campaign(
 
         if to_channel and (asset_path or cover_path):
             # Image + caption-with-link. No document attached.
-            body = content
+            # Per target: one message is generated for every chat, but the
+            # disclaimer decision is per target's own mode.
+            body = apply_disclaimer(content, target)
             if drive_link:
-                body = f"{content}\n\n{_link_line(output, drive_link)}"
+                body = f"{body}\n\n{_link_line(output, drive_link)}"
             draft = Draft(
                 target_id=target.id,
                 campaign_id=campaign.id,
@@ -520,7 +522,9 @@ async def run_campaign(
                 content_type=research_content_type(output),
                 output_type=output,
                 research_json=items,
-                content=content,
+                # A poll question is not prose and must not grow a footer.
+                content=(content if output == OutputType.poll
+                         else apply_disclaimer(content, target)),
                 poll_options=poll_options,
                 asset_path=asset_path,
                 asset_filename=asset_name,

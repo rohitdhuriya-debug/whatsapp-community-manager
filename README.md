@@ -115,6 +115,30 @@ it is discarded. You get a receipt either way — `✅ Sent to 3 chats`.
 - If the approval message itself fails to send, the draft is still saved. A failed
   notification never loses your work.
 
+## The investment disclaimer
+
+`Educational purpose only, not investment advice.` is appended **per post, from the post's
+own content** — not from which community it is going to.
+
+Deciding it from the audience was wrong in both directions: an investing community got the
+line stamped on every post including ones with no financial content, while a stock post sent
+to a general channel got none. Now a post about Nifty, SIPs or a stock carries it wherever it
+goes, and a productivity tip carries it nowhere — including in the investing community.
+
+The heuristic wants real signal before it fires. One unambiguous securities term (`Nifty`,
+`Sensex`, `SIP`, `mutual fund`, `IPO`, `portfolio`, `dividend`, `repo rate`, …) is enough on
+its own; softer words (`invest`, `financial`, `trading`, `returns`, `EMI`, `inflation`) need
+**two distinct** hits, so *"invest an hour in learning this"* does not qualify. Hinglish is
+covered, because the finance vocabulary is English loanwords — *"Nifty aaj gir gaya"* and
+*"paisa kahan invest karein"* both trigger it.
+
+The model sometimes writes a disclaimer unprompted, so a post that should not carry one has
+any trailing disclaimer **removed** rather than merely not added.
+
+Per target you can still force it: **Always** or **Never** beat the heuristic outright, since
+the call has compliance weight. The Composer applies the decision **per draft**, so one
+broadcast to several chats respects each chat's own setting.
+
 ## Channel posts
 
 Channel posts go out as **clean formatted text**, written to be scanned:
@@ -400,7 +424,7 @@ Then set the persona. This is what makes each target sound different:
 | **Banned topics** | Hard exclusions |
 | **CTA link** | The one link allowed in a message |
 | **Model override** | Use a different `:free` model for this target only |
-| **Investment disclaimer** | `Auto` infers from the niche, or force it `Always` / `Never` |
+| **Investment disclaimer** | `Auto` decides from the post's own content, or force it `Always` / `Never` |
 
 Adding target #20 needs zero code changes.
 

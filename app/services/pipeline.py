@@ -48,6 +48,72 @@ FINANCE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Terms that can only mean securities. One is enough to call a post financial.
+#
+# Adversarially stress-tested with ~460 realistic posts. The additions below all
+# come from confirmed misses, not from imagination - the first version passed
+# every noise test but let explicit buy calls, gold, bonds, PPF/NPS/ELSS and
+# capital-gains posts through with no disclaimer at all.
+#
+# Deliberately NOT here, because they are common in non-financial writing:
+# premium, delivery, target, entry, options, cash, call, exposure, position.
+# Each needs a qualifier below to count.
+STRONG_FINANCE = re.compile(
+    r"\b("
+    # Indices, venues, regulators
+    r"nifty|sensex|bse|nse|mcx|sebi|ipos?"
+    # Instruments
+    r"|mutual\s+funds?|sips?|index\s+funds?|etfs?"
+    r"|stocks?|equit(?:y|ies)|shares?|dividends?|portfolios?|demat"
+    r"|(?:stock|share|equity|commodity|bond|capital|forex|derivatives?)\s+markets?"
+    r"|repo\s+rate|bull\s+market|bear\s+market|market\s+cap"
+    r"|crypto\w*|bitcoin"
+    # Market-cap buckets. The plural matters: "buy large caps only" was missed
+    # because the pattern only had the singular.
+    r"|(?:large|mid|small|micro)\s*caps?|multibagger|penny\s+stocks?"
+    # Trading calls - the highest-risk content there is
+    r"|stop\s*loss|stoploss|\bsl\b\s*[:\-]?\s*\d"
+    r"|(?:buy|sell)\s+call|call\s+option|put\s+option|covered\s+call"
+    r"|straddle|strangle|iron\s+condor|theta\s+decay|\btheta\b"
+    r"|upper\s+circuit|lower\s+circuit|intraday"
+    r"|accumulate\s+on\s+dips|book\s+(?:profits?|partial)|average\s+down"
+    r"|\bf\s*&\s*o\b|(?:gold|silver|crude|index|nifty|commodity)\s+futures"
+    r"|futures\s+(?:contract|series|position)"
+    # Company analysis
+    r"|promoter\s+(?:holding|pledge)|pledged\s+shares?"
+    # Commodities as an investment - never bare "gold", which is mostly
+    # "gold standard" and "gold medal" in ordinary writing
+    r"|sovereign\s+gold\s+bonds?|\bsgbs?\b"
+    r"|gold\s+(?:etf|bonds?|futures|price|rate|bhaav)"
+    r"|(?:gold|silver)\s+(?:me|ka)\s+(?:nivesh|paisa)"
+    # Debt. Bare "bond" is "bond with your team", so it stays qualified.
+    r"|bond\s+yields?|(?:government|corporate|savings|sovereign|tax.free)\s+bonds?"
+    r"|debt\s+(?:funds?|mutual\s+funds?)|g.?secs?|gilt\s+funds?"
+    # Retirement and tax-saving products
+    r"|\bppf\b|\bepf\b|\belss\b|\bulip\b|\b80\s*c\b|nps\s+tier|nps\s+account"
+    r"|sukanya|endowment\s+policy|annuit(?:y|ies)"
+    # Tax on investments
+    r"|capital\s+gains?|\bltcg\b|\bstcg\b|indexation"
+    # Portfolio management
+    r"|asset\s+allocation|rebalanc(?:e|ing)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Terms that suggest money but have innocent uses - "invest time in learning",
+# "financial year", "trade-off". Two distinct ones are needed before they count.
+WEAK_FINANCE = re.compile(
+    r"\b("
+    r"invest(?:ing|ment|ments|or|ors)?"
+    r"|financ(?:e|es|ial)"
+    r"|trad(?:e|es|er|ers|ing)"
+    r"|wealth|returns?|yields?|valuations?"
+    r"|rupee|inflation|interest\s+rates?"
+    r"|emi|loans?|fds?"
+    r")\b",
+    re.IGNORECASE,
+)
+
 
 class PipelineError(RuntimeError):
     """Anything that stopped a draft from being produced."""
@@ -59,10 +125,10 @@ class PipelineError(RuntimeError):
 
 
 def _is_finance(target: Target) -> bool:
-    """Whether to append the investment disclaimer.
+    """Whether this chat is an investing audience at all.
 
-    Auto-detection is a heuristic and this decision has compliance weight, so
-    the target can override it outright.
+    Used to decide whether to even ask the model for a disclaimer. Whether one
+    is actually kept is decided later, from the finished text.
     """
     mode = (getattr(target, "disclaimer_mode", None) or "auto").lower()
     if mode == "always":
@@ -71,6 +137,59 @@ def _is_finance(target: Target) -> bool:
         return False
     blob = f"{target.niche} {target.persona_prompt} {target.research_instructions}"
     return FINANCE_PATTERN.search(blob) is not None
+
+
+# Phrases where a finance word is being used figuratively. Blanked before the
+# patterns run, so "share this post" and "take stock of your week" do not put a
+# SEBI disclaimer on a productivity tip. Each of these was an observed false
+# positive, not a hypothetical.
+FIGURATIVE = re.compile(
+    r"\binvest(?:ing|ed)?\s+in\s+"
+    r"(?:yourself|yourselves|myself|ourselves|your\s+\w+|our\s+\w+|my\s+\w+"
+    r"|learning|education|skills?|people|talent|relationships?|health|time|community)\b"
+    r"|\btake\s+stock\b|\b(?:in|out\s+of)\s+stock\b"
+    r"|\bstock\s+(?:image|photo|footage|video|music|librar)\w*"
+    r"|\bshares?\s+(?:this|it|these|those)\b"
+    r"|\bshare\s+(?:with|your|the\s+post|a\s+post)\b"
+    r"|\bgold\s+(?:standard|medal|mine|dust|rush)\b"
+    r"|\bbond\s+(?:with|over|between)\b"
+    r"|\bnps\s+score\b"
+    r"|\bmarket\s+(?:your|our|their|the\s+product)\b"
+    r"|\bequity\s+(?:in\s+hiring|and\s+inclusion)\b",
+    re.IGNORECASE,
+)
+
+
+def content_is_finance(text: str) -> bool:
+    """Whether this specific post is about markets or investing.
+
+    One unambiguous securities term is enough; the softer words need two
+    distinct hits, so "invest an hour in learning this" does not qualify.
+    """
+    body = FIGURATIVE.sub(" ", text or "")
+    if STRONG_FINANCE.search(body):
+        return True
+    weak = {m.group(0).lower() for m in WEAK_FINANCE.finditer(body)}
+    return len(weak) >= 2
+
+
+def needs_disclaimer(target: Target, text: str) -> bool:
+    """Whether THIS post gets the investment disclaimer.
+
+    Keyed on the content, not just the audience. Deciding from the target
+    alone stamped an investing community's every post - including a
+    productivity tip with no financial content - with a SEBI-style line, and
+    conversely let a stock post to a general channel go out without one.
+
+    The per-target mode still wins outright, because the call has compliance
+    weight and a heuristic should not be the last word.
+    """
+    mode = (getattr(target, "disclaimer_mode", None) or "auto").lower()
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    return content_is_finance(text)
 
 
 def _format_rules(target: Target, content_type: ContentType) -> str:
@@ -204,11 +323,53 @@ def sanitize(text: str, target: Target) -> str:
 
     text = _enforce_single_link(text, target)
 
-    if _is_finance(target):
-        without = text.replace(FINANCE_DISCLAIMER, "").rstrip()
-        text = f"{without}\n\n{FINANCE_DISCLAIMER}"
+    text = apply_disclaimer(text, target)
 
     return _truncate_cleanly(text)
+
+
+def apply_disclaimer(text: str, target: Target) -> str:
+    """Add or remove the investment disclaimer for this target and this text.
+
+    Split out of sanitize so the Composer can re-apply it per target: it
+    generates one message for every chat, so a target whose mode is "never"
+    would otherwise inherit the disclaimer decided for the first one.
+    """
+    if needs_disclaimer(target, text):
+        without = text.replace(FINANCE_DISCLAIMER, "").rstrip()
+        return f"{without}\n\n{FINANCE_DISCLAIMER}"
+    # The model adds one unprompted often enough that only ever appending is
+    # not sufficient - a productivity post to an investing community would
+    # keep whatever disclaimer it invented for itself.
+    return _strip_disclaimer(text)
+
+
+# A trailing advice-disclaimer in any of the phrasings models reach for.
+DISCLAIMER_LINE = re.compile(
+    r"^\s*[*_~(\[]{0,3}\s*"
+    r"(?:disclaimer\s*[:\-]\s*)?"
+    r"(?:"
+    # "...not investment advice", "...no financial advice"
+    r"[^\n]{0,120}?\b(?:investment|financial|invesment|trading|legal|tax)\s+advice\b"
+    # "for educational purposes only"
+    r"|[^\n]{0,120}?\b(?:educational|educative|informational|information)\s+"
+    r"purposes?\s+only\b"
+    # "not advice", "not a recommendation"
+    r"|[^\n]{0,120}?\bnot\s+(?:an?\s+)?(?:advice|advisory|recommendation)\b"
+    r")"
+    r"[^\n]{0,60}$",
+    re.IGNORECASE,
+)
+
+
+def _strip_disclaimer(text: str) -> str:
+    """Drop a trailing investment disclaimer this post should not carry."""
+    lines = text.rstrip().splitlines()
+    while lines and (not lines[-1].strip() or DISCLAIMER_LINE.match(lines[-1])):
+        if lines[-1].strip() and not DISCLAIMER_LINE.match(lines[-1]):
+            break
+        lines.pop()
+    return "\n".join(lines).rstrip()
 
 
 def _enforce_single_link(text: str, target: Target) -> str:
