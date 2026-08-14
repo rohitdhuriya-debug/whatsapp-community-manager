@@ -163,13 +163,21 @@ async def send_to_target(
                 if cover:
                     png, cover_name = cover
                     try:
-                        await waha.send_image(
+                        cover_response = await waha.send_image(
                             stored.chat_id,
                             filename=cover_name,
                             mimetype="image/png",
                             data_b64=base64.b64encode(png).decode(),
                             caption=text,
                             session_name=session_name,
+                        )
+                        # This message reached the chat, so it must appear in
+                        # the log. It used to be invisible: if the document
+                        # then failed, the draft was marked failed and the log
+                        # showed nothing, while the caption was already posted.
+                        _log_attempt(
+                            session, stored, draft_id, status="sent",
+                            payload={"part": "cover", **(cover_response or {})},
                         )
                         text = ""  # caption already delivered with the image
                     except waha.WahaError as exc:

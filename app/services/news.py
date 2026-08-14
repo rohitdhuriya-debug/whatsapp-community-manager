@@ -34,6 +34,8 @@ log = logging.getLogger(__name__)
 RETAIN_HOURS = 72
 PER_FEED_KEEP = 60
 RSS_PER_FEED = 25
+# Seconds. feedparser blocks with no timeout of its own.
+FEED_TIMEOUT = 20
 
 # This is a *trending* feed, so recency is the whole point. Google News sorts by
 # relevance, which happily returns week-old pieces, so the window is asked for
@@ -164,11 +166,20 @@ def _fetch_rss(query: str, limit: int, window: str = "") -> list[dict[str, Any]]
         "https://news.google.com/rss/search?q="
         f"{urllib.parse.quote(full)}&hl=en-IN&gl=IN&ceid=IN:en"
     )
+    # feedparser has no timeout of its own, so a stalled feed would hang the
+    # hourly job forever and hold its max_instances slot - after which the news
+    # tab silently stops updating.
+    import socket
+
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(FEED_TIMEOUT)
     try:
         parsed = feedparser.parse(url)
     except Exception as exc:
         log.warning("News RSS failed for %r: %s", query[:50], exc)
         return []
+    finally:
+        socket.setdefaulttimeout(previous)
 
     out: list[dict[str, Any]] = []
     for entry in (parsed.entries or [])[:limit]:

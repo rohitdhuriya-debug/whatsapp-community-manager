@@ -62,6 +62,9 @@ RETAIN_SECONDS = 900
 @dataclass
 class Job:
     id: str
+    # Which campaign this run belongs to, so a second Generate for the same
+    # campaign can be refused while the first is still in flight.
+    campaign_id: int | None = None
     kind: str = "message"
     engine: str = "openrouter"
     phase: str = "queued"
@@ -135,11 +138,23 @@ class Job:
 _JOBS: dict[str, Job] = {}
 
 
-def create(kind: str, engine: str) -> Job:
+def create(kind: str, engine: str, campaign_id: int | None = None) -> Job:
     _purge()
-    job = Job(id=uuid.uuid4().hex, kind=kind, engine=engine)
+    job = Job(id=uuid.uuid4().hex, kind=kind, engine=engine, campaign_id=campaign_id)
     _JOBS[job.id] = job
     return job
+
+
+def running_for(campaign_id: int) -> Job | None:
+    """An in-flight generation for this campaign, if there is one.
+
+    Double-clicking Generate used to start two concurrent runs against the same
+    campaign; both wrote drafts, and one approval then released both copies.
+    """
+    for job in _JOBS.values():
+        if job.campaign_id == campaign_id and job.status == "running":
+            return job
+    return None
 
 
 def get(job_id: str) -> Job | None:
@@ -170,15 +185,25 @@ def _purge() -> None:
         _JOBS.pop(key, None)
 
 
+# A bare create_task is only weakly referenced by the event loop, so a
+# long-running generation can be garbage-collected mid-flight. Hold them.
+_TASKS: set[asyncio.Task] = set()
+
+
 def run(job: Job, coro) -> None:
     """Fire the coroutine in the background, recording success or failure."""
 
     async def _wrapper() -> None:
         try:
             result = await coro
+        except asyncio.CancelledError:
+            fail(job, "Cancelled.")
+            raise
         except Exception as exc:  # surfaced to the UI via the job record
             fail(job, str(exc) or type(exc).__name__)
         else:
             finish(job, result)
 
-    asyncio.create_task(_wrapper())
+    task = asyncio.create_task(_wrapper())
+    _TASKS.add(task)
+    task.add_done_callback(_TASKS.discard)

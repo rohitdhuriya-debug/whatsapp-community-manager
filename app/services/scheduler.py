@@ -148,7 +148,13 @@ def reload_jobs() -> int:
                 log.warning("Skipping schedule %s: %s", row.id, exc)
                 continue
             if trigger is None:
-                continue  # a one-off whose moment has already passed
+                # A one-off whose moment passed while the app was down.
+                # Silently dropping it looked like it had never been set.
+                log.warning(
+                    "Schedule %s was a one-off whose time has passed; it will "
+                    "not run. Set a new time if you still want it.", row.id,
+                )
+                continue
 
             _scheduler.add_job(
                 func,
@@ -195,10 +201,14 @@ def next_run_for_target(target_id: int | None) -> datetime | None:
     """Earliest upcoming run across all of this target's jobs."""
     if _scheduler is None or target_id is None:
         return None
+    # Must check the function too: campaign jobs also carry their id in
+    # args[0], so a campaign whose id happened to equal a target id had its
+    # next run reported on that target's card.
     times = [
         job.next_run_time
         for job in _scheduler.get_jobs()
         if job.id.startswith("schedule-")
+        and job.func is run_scheduled_job
         and job.args
         and job.args[0] == target_id
         and job.next_run_time is not None

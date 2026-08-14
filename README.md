@@ -99,19 +99,29 @@ set*, respects each one. Autopilot has its own setting, separate from any target
 | Best for | Sends you are watching | Autopilot, and anything scheduled |
 
 With **Approve on WhatsApp**, the draft is sent to your own number with a 4-character code.
-Reply `approve` (or `approve A7K2`, `ok`, `yes`, `haan`) and it goes out; reply `reject` and
-it is discarded. You get a receipt either way — `✅ Sent to 3 chats`.
+Reply `approve A7K2` and it goes out; reply `reject A7K2` and it is discarded. You get a
+receipt either way — `✅ Sent to 3 chats`.
+
+**The code is always required.** Approvals land in your own "message yourself" chat, which is
+also where people jot notes — a bare `ok` typed to yourself would broadcast to a community.
+Four characters is a small price for that not being possible.
 
 - Set the destination under **Settings → Approve on WhatsApp**. Left empty it uses the linked
   phone's own number, which needs no setup.
 - Each request covers **only its own chat**. Approving the channel cannot release a draft for
   a group that was set to sign off in the dashboard.
-- The code is optional when one approval is outstanding and **required when several are**, so
-  a bare "ok" can never release the wrong one.
+- An approval is pinned to **the exact text it showed you**, by draft id and content
+  fingerprint. Regenerate before replying and the old code is retired — it can never release
+  content you never read.
+- **Nothing sends while an approval is outstanding.** The guard sits in the single outbound
+  gate, so "Send now", the scheduler and the per-draft send are all covered.
+- Clicking **Approve** in the dashboard resolves the WhatsApp request too, so a reply arriving
+  at the same moment cannot send it twice.
 - Only replies *newer than the request* count, so an old "ok" in the chat releases nothing.
 - Unanswered requests expire after 12 hours rather than firing days later.
 - Replies are found by polling that one chat every 12s, and only while something is actually
   waiting — WAHA runs in Docker, so a webhook would need container-to-host networking.
+  Polling resumes on boot, so an approval raised before a restart is still watched.
 - If the approval message itself fails to send, the draft is still saved. A failed
   notification never loses your work.
 

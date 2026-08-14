@@ -48,6 +48,13 @@ REJECT = re.compile(r"^\s*/?\s*(reject|no|cancel|stop|nahi)\b\s*([a-z0-9]{4})?",
 _poller: asyncio.Task | None = None
 
 
+def _fingerprint(text: str) -> str:
+    """Short hash of the text a request showed, so release can verify it."""
+    import hashlib
+
+    return hashlib.sha1((text or "").encode("utf-8", "ignore")).hexdigest()[:16]
+
+
 def _new_code() -> str:
     # No 0/O/1/I - these get typed back by hand on a phone.
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -177,6 +184,9 @@ async def request(
         campaign_id=campaign.id, code=code, chat_id=chat_id,
         session_name=session_name, sent_ts=sent_ts,
         target_id=target.id if target else None,
+        # Pin the exact drafts this message showed, and their text.
+        draft_ids=[d.id for d in drafts if d.id is not None],
+        content_hash=_fingerprint(draft.content if draft else ""),
     )
     session.add(row)
     session.commit()
@@ -192,11 +202,13 @@ async def request(
 # ---------------------------------------------------------------------------
 
 
-def _match(body: str, code: str, *, require_code: bool = False) -> str | None:
+def _match(body: str, code: str, *, require_code: bool = True) -> str | None:
     """'approved' / 'rejected' / None for one message body.
 
-    `require_code` when more than one approval is outstanding: a bare "ok"
-    would otherwise release whichever request happened to be checked first.
+    The code is ALWAYS required. Approvals land in your own "message yourself"
+    chat, which is also where people jot notes - a bare "ok" typed to yourself
+    would broadcast to a community. Four characters is a small price for that
+    not being possible.
     """
     text = (body or "").strip()
     if not text:
@@ -235,8 +247,7 @@ async def _check_one(
         timestamp = message.get("timestamp") or 0
         if not isinstance(timestamp, (int, float)) or int(timestamp) <= row.sent_ts:
             continue
-        verdict = _match(str(message.get("body") or ""), row.code,
-                         require_code=outstanding > 1)
+        verdict = _match(str(message.get("body") or ""), row.code)
         if verdict is None:
             continue
 
@@ -260,17 +271,63 @@ async def _check_one(
 
 
 def _covered(session: Session, row: ApprovalRequest) -> list[Draft]:
-    """The pending drafts this approval controls, and only those.
+    """The exact drafts this approval showed, if they are still pending.
 
-    Filtering on campaign alone would let approving one chat release drafts for
-    a target that was set to sign off in the dashboard.
+    Pinned by id rather than re-queried. Re-querying "what is pending for this
+    campaign now" meant that regenerating between the request and the reply
+    silently swapped the content: you approved the text on your phone and a
+    different, unreviewed draft went out.
+
+    Rows created before draft_ids existed fall back to the old campaign+target
+    query, which is what they were released by at the time.
     """
+    if row.draft_ids:
+        found = []
+        for draft_id in row.draft_ids:
+            draft = session.get(Draft, draft_id)
+            if draft is None or draft.status != DraftStatus.pending:
+                continue
+            # SQLite reuses rowids, so a deleted-and-recreated draft can land on
+            # the same id. Verify the text is the text that was shown.
+            if row.content_hash and _fingerprint(draft.content) != row.content_hash:
+                log.warning(
+                    "Approval %s: draft %s no longer holds the approved text; skipping.",
+                    row.code, draft_id,
+                )
+                continue
+            found.append(draft)
+        return found
+
     stmt = select(Draft).where(
         Draft.campaign_id == row.campaign_id, Draft.status == DraftStatus.pending
     )
     if row.target_id is not None:
         stmt = stmt.where(Draft.target_id == row.target_id)
     return list(session.exec(stmt).all())
+
+
+def supersede(session: Session, campaign_id: int) -> int:
+    """Expire outstanding approvals for a campaign whose drafts are being replaced.
+
+    Called wherever pending drafts are deleted. Without it the old code stays a
+    live trigger in the chat for content that no longer exists.
+    """
+    rows = session.exec(
+        select(ApprovalRequest).where(
+            ApprovalRequest.campaign_id == campaign_id,
+            ApprovalRequest.status == ApprovalStatus.pending,
+        )
+    ).all()
+    for row in rows:
+        row.status = ApprovalStatus.expired
+        row.resolved_at = utcnow()
+        row.note = "superseded by a newer draft"
+        session.add(row)
+    if rows:
+        session.commit()
+        log.info("Superseded %s outstanding approval(s) for campaign %s",
+                 len(rows), campaign_id)
+    return len(rows)
 
 
 async def _release(session: Session, row: ApprovalRequest) -> None:

@@ -31,7 +31,7 @@ from .routers import (
     waha_api,
 )
 from .security import require_token
-from .services import llm, scheduler
+from .services import approvals, llm, scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +46,16 @@ async def lifespan(app: FastAPI):
     init_db()
     log.info("Database ready at %s", config.db_path)
     scheduler.start()
+
+    # Approvals raised before a restart were left with nobody watching for the
+    # reply - the poller only ever started when a NEW request was raised, so a
+    # pending approval sat dead until something unrelated revived it.
+    with session_scope() as session:
+        outstanding = approvals.pending_count(session)
+    if outstanding:
+        approvals.ensure_poller()
+        log.info("Resumed polling for %s outstanding approval(s).", outstanding)
+
     log.info("Dashboard: http://%s:%s", config.app_host, config.app_port)
     with session_scope() as session:
         if not llm.resolve_api_key(session):

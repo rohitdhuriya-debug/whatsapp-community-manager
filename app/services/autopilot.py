@@ -72,6 +72,12 @@ async def run(
     session.add(campaign)
     session.commit()
 
+    # Retire outstanding approvals first: they were raised for the draft we
+    # are about to delete, and would otherwise release the new one.
+    from . import approvals as _approvals
+
+    _approvals.supersede(session, campaign.id)
+
     # Clear any pending draft from an earlier run of this autopilot, so a
     # re-run does not stack up two drafts per chat.
     for draft in session.exec(

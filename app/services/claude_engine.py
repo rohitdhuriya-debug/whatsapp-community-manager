@@ -171,6 +171,13 @@ async def generate(
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError as exc:
+        # wait_for only abandons the wait - the CLI keeps running, holding its
+        # pipes and CPU. Kill it, or repeated timeouts pile up orphans.
+        try:
+            proc.kill()
+            await proc.wait()
+        except (ProcessLookupError, OSError):
+            pass
         raise ClaudeCodeError(
             f"Claude Code did not finish within {timeout}s. Try a shorter brief."
         ) from exc

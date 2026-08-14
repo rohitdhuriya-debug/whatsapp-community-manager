@@ -37,7 +37,7 @@ class CampaignIn(BaseModel):
     use_research: bool = True
     send_cover_image: bool = True
     approval_mode: Literal["per_target", "dashboard", "whatsapp"] = "per_target"
-    generate_cover: bool = True
+    generate_cover: bool = False
     target_ids: list[int] = []
 
 
@@ -233,6 +233,22 @@ async def generate(
     """
     campaign = _get_or_404(session, campaign_id)
 
+    # One generation at a time per campaign. Two concurrent runs both wrote
+    # drafts for the same targets, and a single approval then released both.
+    in_flight = jobs.running_for(campaign_id)
+    if in_flight is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="This campaign is already generating. Wait for it to finish.",
+        )
+
+    # Any approval still outstanding was about the draft we are replacing, so
+    # retire it - otherwise the old code in the chat stays a live trigger and
+    # would release the NEW, unreviewed content.
+    from ..services import approvals as _approvals
+
+    _approvals.supersede(session, campaign_id)
+
     # Clear the previous preview so repeated generates do not pile up.
     for draft in session.exec(
         select(Draft).where(
@@ -242,7 +258,8 @@ async def generate(
         session.delete(draft)
     session.commit()
 
-    job = jobs.create(kind=campaign.output_type.value, engine=campaign.engine.value)
+    job = jobs.create(kind=campaign.output_type.value, engine=campaign.engine.value,
+                      campaign_id=campaign_id)
     jobs.run(job, _generate_in_background(campaign_id, job))
     return {"job_id": job.id, **job.as_dict()}
 

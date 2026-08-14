@@ -23,6 +23,9 @@ from ddgs import DDGS
 
 log = logging.getLogger(__name__)
 
+# Seconds. feedparser blocks with no timeout of its own.
+FEED_TIMEOUT = 20
+
 # The default ddgs backend rotation includes engines that hang or return
 # nothing from India; these two are the ones that actually answer.
 BACKENDS = ("duckduckgo", "brave")
@@ -114,11 +117,19 @@ def _search_gnews(query: str) -> list[dict[str, Any]]:
         "https://news.google.com/rss/search?q="
         f"{urllib.parse.quote(query)}&hl=en-IN&gl=IN&ceid=IN:en"
     )
+    # feedparser has no timeout of its own, so a stalled feed would hang the
+    # caller indefinitely.
+    import socket
+
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(FEED_TIMEOUT)
     try:
         feed = feedparser.parse(url)
     except Exception as exc:
         log.warning("Google News RSS failed: %s", exc)
         return []
+    finally:
+        socket.setdefaulttimeout(previous)
 
     items = []
     for entry in (feed.entries or [])[:GNEWS_MAX_RESULTS]:

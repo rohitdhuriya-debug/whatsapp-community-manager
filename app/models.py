@@ -308,6 +308,16 @@ class ApprovalRequest(SQLModel, table=True):
     # drafts of a target that was set to sign off in the dashboard.
     target_id: int | None = Field(default=None, foreign_key="targets.id", index=True)
 
+    # Exactly which drafts this request showed you. Without it, release
+    # re-queried "whatever is pending for this campaign now" - so regenerating
+    # and then approving the older code published text that was never on your
+    # phone.
+    draft_ids: list[int] = Field(default_factory=list, sa_column=Column(JSON))
+    # Fingerprint of the text the message actually showed. SQLite reuses rowids,
+    # so a pinned draft id alone can match a DIFFERENT draft created later; the
+    # hash makes the guarantee exact - approving releases that text or nothing.
+    content_hash: str = Field(default="", index=True)
+
     # Short human-typable code, so several pending approvals stay unambiguous.
     code: str = Field(index=True)
     chat_id: str = ""          # where the request was sent
